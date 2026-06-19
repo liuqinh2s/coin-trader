@@ -1,0 +1,6 @@
+requests
+aiohttp
+pandas
+pytz
+pyyaml
+python-dotenv
