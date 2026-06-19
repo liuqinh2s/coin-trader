@@ -120,11 +120,11 @@ async def dispatch_crypto_mint_analysis(
     session: aiohttp.ClientSession,
     symbols: list[str],
     cfg: dict[str, Any],
-) -> bool:
+) -> int:
     tokens = [symbol_to_news_token(symbol) for symbol in symbols]
     tokens = [token for token in dict.fromkeys(tokens) if token]
     if not tokens:
-        return False
+        return 0
 
     token = (
         os.environ.get("CRYPTO_MINT_GITHUB_TOKEN")
@@ -133,38 +133,79 @@ async def dispatch_crypto_mint_analysis(
     )
     if not token:
         log.info("未配置 CRYPTO_MINT_GITHUB_TOKEN，跳过自动触发消息面分析")
-        return False
+        return 0
 
-    payload = {
-        "ref": cfg.get("crypto_mint_branch", "main"),
-        "inputs": {
-            "token": " ".join(tokens),
-            "exchange": cfg.get("crypto_mint_exchange", "binance"),
-        },
-    }
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    batch_size = int(cfg.get("crypto_mint_dispatch_batch_size", 4))
+    batch_size = max(1, min(batch_size, 8))
+    dispatched = 0
 
-    try:
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with session.post(
-            CRYPTO_MINT_WORKFLOW_URL,
-            headers=headers,
-            json=payload,
-            timeout=timeout,
-        ) as resp:
-            if resp.status in (200, 201, 202, 204):
-                log.info("已批量触发 Crypto Mint 分析: %s", " ".join(tokens))
-                return True
-            text = await resp.text()
-            log.warning("触发 Crypto Mint 失败 HTTP %d: %s", resp.status, text[:200])
-    except Exception as exc:
-        log.warning("触发 Crypto Mint 异常: %s", exc)
-    return False
+    for i in range(0, len(tokens), batch_size):
+        batch = tokens[i:i + batch_size]
+        payload = {
+            "ref": cfg.get("crypto_mint_branch", "main"),
+            "inputs": {
+                "token": " ".join(batch),
+                "exchange": cfg.get("crypto_mint_exchange", "binance"),
+            },
+        }
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with session.post(
+                CRYPTO_MINT_WORKFLOW_URL,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            ) as resp:
+                if resp.status in (200, 201, 202, 204):
+                    dispatched += len(batch)
+                    log.info("已触发 Crypto Mint 分析: %s", " ".join(batch))
+                else:
+                    text = await resp.text()
+                    log.warning("触发 Crypto Mint 失败 HTTP %d: %s", resp.status, text[:200])
+        except Exception as exc:
+            log.warning("触发 Crypto Mint 异常: %s", exc)
+        await asyncio.sleep(1)
+
+    return dispatched
+
+
+async def fetch_crypto_mint_index(
+    session: aiohttp.ClientSession,
+    proxy_url: str | None,
+) -> dict[str, dict[str, Any]]:
+    index_url = f"{CRYPTO_MINT_BASE}data/search-index.json"
+    index = await fetch_json(session, f"{index_url}?t={int(time.time())}", proxy_url)
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in (index or {}).get("results", []):
+        token = str(item.get("token") or "").upper()
+        if token:
+            indexed[token] = item
+    return indexed
+
+
+async def dispatch_missing_crypto_mint_analysis(
+    session: aiohttp.ClientSession,
+    symbols: list[str],
+    proxy_url: str | None,
+    cfg: dict[str, Any],
+) -> int:
+    indexed = await fetch_crypto_mint_index(session, proxy_url)
+    missing = [
+        symbol for symbol in symbols
+        if symbol_to_news_token(symbol) not in indexed
+    ]
+    if not missing:
+        log.info("Crypto Mint 已有全部日K向上代币的结果")
+        return 0
+    log.info("Crypto Mint 缺失 %d 个结果，将按小批次提交分析", len(missing))
+    return await dispatch_crypto_mint_analysis(session, missing, cfg)
 
 
 async def fetch_crypto_mint_sentiment(
@@ -176,13 +217,7 @@ async def fetch_crypto_mint_sentiment(
         return {}
 
     tokens_by_symbol = {symbol: symbol_to_news_token(symbol) for symbol in symbols}
-    index_url = f"{CRYPTO_MINT_BASE}data/search-index.json"
-    index = await fetch_json(session, f"{index_url}?t={int(time.time())}", proxy_url)
-    indexed: dict[str, dict[str, Any]] = {}
-    for item in (index or {}).get("results", []):
-        token = str(item.get("token") or "").upper()
-        if token:
-            indexed[token] = item
+    indexed = await fetch_crypto_mint_index(session, proxy_url)
 
     sem = asyncio.Semaphore(8)
     result: dict[str, dict[str, Any]] = {}
@@ -486,9 +521,12 @@ async def main() -> None:
         if default_selected(token["tags"])
     ]
     log.info("获取消息面评分: %d 个日K趋势向上代币", len(daily_up_symbols))
+    sentiment_dispatched = 0
     async with aiohttp.ClientSession(headers=headers) as session:
         if cfg.get("crypto_mint_auto_dispatch", False):
-            await dispatch_crypto_mint_analysis(session, daily_up_symbols, cfg)
+            sentiment_dispatched = await dispatch_missing_crypto_mint_analysis(
+                session, daily_up_symbols, proxy_url, cfg,
+            )
         sentiment_map = await fetch_crypto_mint_sentiment(session, daily_up_symbols, proxy_url)
 
     sentiment_count = 0
@@ -517,6 +555,7 @@ async def main() -> None:
         "validSymbols": valid_count,
         "filteredCount": default_count,
         "sentimentCount": sentiment_count,
+        "sentimentDispatched": sentiment_dispatched,
         "totalTagged": len(result_tokens),
         "btcDirection": btc_direction,
         "elapsed": elapsed,

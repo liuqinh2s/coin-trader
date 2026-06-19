@@ -773,8 +773,10 @@
                 data.validSymbols != null ? data.validSymbols.toLocaleString() : '--';
             document.getElementById('filteredCount').textContent =
                 data.filteredCount != null ? data.filteredCount.toLocaleString() : '--';
+            const sentimentCount = data.sentimentCount != null ? data.sentimentCount.toLocaleString() : '--';
+            const sentimentDispatched = data.sentimentDispatched || 0;
             document.getElementById('sentimentCount').textContent =
-                data.sentimentCount != null ? data.sentimentCount.toLocaleString() : '--';
+                sentimentDispatched > 0 ? `${sentimentCount} / 提交${sentimentDispatched}` : sentimentCount;
             document.getElementById('elapsed').textContent =
                 data.elapsed != null ? data.elapsed + 's' : '--';
 
@@ -883,7 +885,9 @@
             const score = getSentimentScore(t);
             const scoreText = score >= 0 ? score : '待分析';
             const scoreCls = score >= 0 ? 'sentiment-score has-score' : 'sentiment-score';
-            const label = [s.label, s.action].filter(Boolean).join(' · ');
+            const label = score >= 0
+                ? [s.label, s.action].filter(Boolean).join(' · ')
+                : '等待 Crypto Mint 发布';
             const token = String((s.token || t.symbol || '')).replace(/(USDT|USDC|FDUSD|USD)$/i, '').toUpperCase();
             const url = s.detail_url || `https://liuqinh2s.github.io/crypto-mint/${token}`;
             return `<div>

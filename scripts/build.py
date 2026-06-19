@@ -33,7 +33,8 @@ if not scan_files:
     print("[BUILD] 无扫描数据，写入空默认值")
     empty = {
         "scanTime": None, "totalSymbols": 0, "validSymbols": 0,
-        "filteredCount": 0, "sentimentCount": 0, "btcDirection": "unknown", "elapsed": 0,
+        "filteredCount": 0, "sentimentCount": 0, "sentimentDispatched": 0,
+        "btcDirection": "unknown", "elapsed": 0,
         "tokens": [],
     }
     (SITE_DATA_DIR / "latest.json").write_text(json.dumps(empty), encoding="utf-8")

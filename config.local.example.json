@@ -7,6 +7,7 @@
   "crypto_mint_github_token": "",
   "crypto_mint_branch": "main",
   "crypto_mint_exchange": "binance",
+  "crypto_mint_dispatch_batch_size": 4,
   "max_7d_gain_mult": 2.7,
   "max_boll_width_mult": 2.7,
   "max_close_above_upper_mult": 1.1,
