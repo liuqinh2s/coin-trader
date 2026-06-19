@@ -696,6 +696,8 @@
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
+        const CRYPTO_MINT_BASE = 'https://liuqinh2s.github.io/crypto-mint/';
+        let cryptoMintPollTimer = null;
 
         // 标签样式映射
         const TAG_STYLES = {
@@ -748,6 +750,7 @@
                 const data = await cachedFetch('/api/latest', true);
                 currentData = data;
                 renderData(data);
+                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
             } catch (e) { console.error(e); }
         }
 
@@ -814,6 +817,80 @@
             } else {
                 noData.classList.add('hidden');
             }
+        }
+
+        function symbolToSentimentToken(symbol) {
+            return String(symbol || '').replace(/(USDT|USDC|FDUSD|USD)$/i, '').toUpperCase();
+        }
+
+        async function hydrateCryptoMintScores(data, showUpdateToast = true) {
+            const tokens = data.tokens || [];
+            const pending = tokens.filter(t =>
+                (t.tags || []).some(tag => getTagKey(tag) === '日K趋势向上') &&
+                getSentimentScore(t) < 0
+            );
+            if (!pending.length) return 0;
+
+            try {
+                const res = await fetch(`${CRYPTO_MINT_BASE}data/search-index.json?_t=${Date.now()}`, { cache: 'no-store' });
+                if (!res.ok) return 0;
+                const index = await res.json();
+                const byToken = {};
+                for (const item of index.results || []) {
+                    if (item.token) byToken[String(item.token).toUpperCase()] = item;
+                }
+
+                let updated = 0;
+                for (const t of pending) {
+                    const token = symbolToSentimentToken(t.symbol);
+                    const item = byToken[token];
+                    if (!item || item.score === null || item.score === undefined) continue;
+                    t.sentiment = {
+                        token,
+                        available: true,
+                        score: Number(item.score),
+                        label: item.label || '',
+                        action: item.action || '',
+                        name: item.name || '',
+                        generated_at: item.generatedAt || '',
+                        detail_url: `${CRYPTO_MINT_BASE}${token}`,
+                    };
+                    updated += 1;
+                }
+
+                if (updated > 0) {
+                    data.sentimentCount = tokens.filter(t => getSentimentScore(t) >= 0).length;
+                    renderData(data);
+                    if (showUpdateToast) showToast(`已补充 ${updated} 个消息评分`);
+                }
+                return updated;
+            } catch (e) {
+                console.warn('Crypto Mint score refresh failed', e);
+                return 0;
+            }
+        }
+
+        function hasPendingCryptoMintScores(data) {
+            return (data.tokens || []).some(t =>
+                (t.tags || []).some(tag => getTagKey(tag) === '日K趋势向上') &&
+                getSentimentScore(t) < 0
+            );
+        }
+
+        function startCryptoMintPolling(data) {
+            clearInterval(cryptoMintPollTimer);
+            if (!hasPendingCryptoMintScores(data)) return;
+
+            let attempts = 0;
+            const maxAttempts = 16;
+            cryptoMintPollTimer = setInterval(async () => {
+                attempts += 1;
+                await hydrateCryptoMintScores(data, true);
+                if (!hasPendingCryptoMintScores(data) || attempts >= maxAttempts) {
+                    clearInterval(cryptoMintPollTimer);
+                    cryptoMintPollTimer = null;
+                }
+            }, 15000);
         }
 
         function renderTagBar(tokens) {
@@ -996,6 +1073,7 @@
                 currentData = data;
                 activeTagFilter = [...DEFAULT_FILTER];
                 renderData(data);
+                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
                 showToast('已加载扫描 #' + id);
             } catch (e) { showToast('加载失败'); }
         }
@@ -1006,6 +1084,7 @@
                 currentData = data;
                 activeTagFilter = [...DEFAULT_FILTER];
                 renderData(data);
+                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
                 showToast('已回到最新数据');
             } catch (e) { showToast('加载失败'); }
         }
@@ -1109,6 +1188,7 @@
                     if (data.scanTime && currentData && data.scanTime !== currentData.scanTime) {
                         currentData = data;
                         renderData(data);
+                        hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
                         showToast('数据已自动更新');
                     }
                 } catch (e) { /* 静默失败 */ }

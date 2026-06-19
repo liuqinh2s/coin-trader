@@ -116,6 +116,24 @@ def crypto_mint_token_url(token: str) -> str:
     return f"{CRYPTO_MINT_BASE}{token}"
 
 
+def get_crypto_mint_github_token(cfg: dict[str, Any]) -> str:
+    return (
+        os.environ.get("CRYPTO_MINT_GITHUB_TOKEN")
+        or cfg.get("crypto_mint_github_token")
+        or cfg.get("github_token")
+        or ""
+    ).strip()
+
+
+def should_auto_dispatch_crypto_mint(cfg: dict[str, Any]) -> bool:
+    env_value = os.environ.get("CRYPTO_MINT_AUTO_DISPATCH")
+    if env_value is not None:
+        return env_value.strip().lower() in {"1", "true", "yes", "on"}
+    if "crypto_mint_auto_dispatch" in cfg:
+        return bool(cfg.get("crypto_mint_auto_dispatch"))
+    return bool(get_crypto_mint_github_token(cfg))
+
+
 async def dispatch_crypto_mint_analysis(
     session: aiohttp.ClientSession,
     symbols: list[str],
@@ -126,11 +144,7 @@ async def dispatch_crypto_mint_analysis(
     if not tokens:
         return 0
 
-    token = (
-        os.environ.get("CRYPTO_MINT_GITHUB_TOKEN")
-        or cfg.get("crypto_mint_github_token")
-        or cfg.get("github_token")
-    )
+    token = get_crypto_mint_github_token(cfg)
     if not token:
         log.info("未配置 CRYPTO_MINT_GITHUB_TOKEN，跳过自动触发消息面分析")
         return 0
@@ -190,12 +204,42 @@ async def fetch_crypto_mint_index(
     return indexed
 
 
+async def wait_for_crypto_mint_results(
+    session: aiohttp.ClientSession,
+    symbols: list[str],
+    proxy_url: str | None,
+    timeout_seconds: int,
+    interval_seconds: int,
+) -> int:
+    if not symbols or timeout_seconds <= 0:
+        return 0
+
+    pending = {symbol_to_news_token(symbol) for symbol in symbols}
+    pending = {token for token in pending if token}
+    if not pending:
+        return 0
+
+    deadline = time.time() + timeout_seconds
+    found = 0
+    while time.time() < deadline:
+        await asyncio.sleep(interval_seconds)
+        indexed = await fetch_crypto_mint_index(session, proxy_url)
+        ready = pending.intersection(indexed.keys())
+        if ready:
+            found += len(ready)
+            pending -= ready
+            log.info("Crypto Mint 新增完成 %d 个，剩余 %d 个", len(ready), len(pending))
+        if not pending:
+            break
+    return found
+
+
 async def dispatch_missing_crypto_mint_analysis(
     session: aiohttp.ClientSession,
     symbols: list[str],
     proxy_url: str | None,
     cfg: dict[str, Any],
-) -> int:
+) -> tuple[int, list[str]]:
     indexed = await fetch_crypto_mint_index(session, proxy_url)
     missing = [
         symbol for symbol in symbols
@@ -203,9 +247,16 @@ async def dispatch_missing_crypto_mint_analysis(
     ]
     if not missing:
         log.info("Crypto Mint 已有全部日K向上代币的结果")
-        return 0
-    log.info("Crypto Mint 缺失 %d 个结果，将按小批次提交分析", len(missing))
-    return await dispatch_crypto_mint_analysis(session, missing, cfg)
+        return 0, []
+    dispatch_limit = int(cfg.get("crypto_mint_dispatch_limit", len(missing)))
+    dispatch_limit = max(1, dispatch_limit)
+    limited = missing[:dispatch_limit]
+    log.info(
+        "Crypto Mint 缺失 %d 个结果，本轮提交 %d 个",
+        len(missing), len(limited),
+    )
+    dispatched = await dispatch_crypto_mint_analysis(session, limited, cfg)
+    return dispatched, limited[:dispatched]
 
 
 async def fetch_crypto_mint_sentiment(
@@ -523,10 +574,20 @@ async def main() -> None:
     log.info("获取消息面评分: %d 个日K趋势向上代币", len(daily_up_symbols))
     sentiment_dispatched = 0
     async with aiohttp.ClientSession(headers=headers) as session:
-        if cfg.get("crypto_mint_auto_dispatch", False):
-            sentiment_dispatched = await dispatch_missing_crypto_mint_analysis(
+        if should_auto_dispatch_crypto_mint(cfg):
+            sentiment_dispatched, dispatched_symbols = await dispatch_missing_crypto_mint_analysis(
                 session, daily_up_symbols, proxy_url, cfg,
             )
+            if sentiment_dispatched:
+                wait_seconds = int(cfg.get("crypto_mint_wait_seconds", 180))
+                wait_interval = int(cfg.get("crypto_mint_wait_interval_seconds", 15))
+                wait_interval = max(5, wait_interval)
+                log.info("等待 Crypto Mint 生成结果，最多 %d 秒", wait_seconds)
+                await wait_for_crypto_mint_results(
+                    session, dispatched_symbols, proxy_url, wait_seconds, wait_interval,
+                )
+        else:
+            log.info("未开启 Crypto Mint 自动提交，仅读取已发布评分")
         sentiment_map = await fetch_crypto_mint_sentiment(session, daily_up_symbols, proxy_url)
 
     sentiment_count = 0

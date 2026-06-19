@@ -46,15 +46,11 @@ cp config.local.example.json config.local.json
 
 `config.local.json` 不会入库。
 
-消息面评分来自 [Crypto Mint](https://liuqinh2s.github.io/crypto-mint/) 已发布的结果。若要在扫描时自动把“日K趋势向上”的代币批量提交给 Crypto Mint，在 `config.local.json` 打开：
+消息面评分来自 [Crypto Mint](https://liuqinh2s.github.io/crypto-mint/) 已发布的结果。若要在扫描时自动把“日K趋势向上”的代币批量提交给 Crypto Mint，在 `config.local.json` 填写 `crypto_mint_github_token`，或通过环境变量 `CRYPTO_MINT_GITHUB_TOKEN` 提供 GitHub token。
 
-```json
-"crypto_mint_auto_dispatch": true
-```
+未配置 token 时，扫描仍会读取已有消息面评分，缺失的币会在前端显示为“待分析”。
 
-并填写 `crypto_mint_github_token`，或通过环境变量 `CRYPTO_MINT_GITHUB_TOKEN` 提供 GitHub token。未配置 token 时，扫描仍会读取已有消息面评分，缺失的币会在前端显示为“待分析”。
-
-为避免一次提交太多代币导致 Crypto Mint 工作流超时，缺失结果会按 `crypto_mint_dispatch_batch_size` 小批次提交，默认每批 4 个。新提交的消息面分析需要等待 Crypto Mint 的 GitHub Actions 跑完并发布，通常下一轮扫描或页面自动刷新后才会显示评分。
+为避免一次提交太多代币导致 Crypto Mint 工作流超时，缺失结果会按 `crypto_mint_dispatch_batch_size` 小批次提交，默认每批 4 个；每轮扫描最多提交 `crypto_mint_dispatch_limit` 个，默认 8 个。新提交的消息面分析需要等待 Crypto Mint 的 GitHub Actions 跑完并发布，扫描脚本默认最多等待 180 秒，页面也会每 15 秒从 Crypto Mint 最新索引补一次评分。
 
 ## 展示扫描
 
