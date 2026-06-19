@@ -229,7 +229,8 @@
         }
 
         .copy-btn,
-        .bitget-link {
+        .bitget-link,
+        .sentiment-link {
             display: inline-block;
             font-size: 10px;
             padding: 2px 6px;
@@ -244,10 +245,38 @@
         }
 
         .copy-btn:hover,
-        .bitget-link:hover {
+        .bitget-link:hover,
+        .sentiment-link:hover {
             background: #f0b90b;
             color: #0a0e17;
             border-color: #f0b90b;
+        }
+
+        .sentiment-score {
+            display: inline-flex;
+            min-width: 44px;
+            justify-content: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #2a3a50;
+            background: #111827;
+            color: #7a8599;
+            font-size: 12px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sentiment-score.has-score {
+            border-color: rgba(0, 200, 83, .45);
+            background: rgba(0, 200, 83, .12);
+            color: #55e58d;
+        }
+
+        .sentiment-meta {
+            margin-top: 4px;
+            color: #7a8599;
+            font-size: 11px;
+            line-height: 1.4;
         }
 
         .price-up {
@@ -583,7 +612,7 @@
             <p class="filter-desc">
                 默认标签：日K趋势向上（点击标签可自由增减组合）<br>
                 可选标签：趋势共振 · 波动充足 · 未追高 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 盘整突破<br>
-                BTC大盘方向为全局条件，不可作为筛选标签
+                日K趋势向上币会同步读取 Crypto Mint 消息面评分，并按评分从高到低排序
             </p>
         </header>
 
@@ -603,6 +632,10 @@
             <div class="stat">
                 <span class="label">筛选通过</span>
                 <span class="val" id="filteredCount">--</span>
+            </div>
+            <div class="stat">
+                <span class="label">消息评分</span>
+                <span class="val" id="sentimentCount">--</span>
             </div>
             <div class="stat">
                 <span class="label">BTC 方向</span>
@@ -645,6 +678,7 @@
                         <th>24h涨跌</th>
                         <th>24h高/低</th>
                         <th>资金费率</th>
+                        <th>消息评分</th>
                         <th>加分项标签</th>
                     </tr>
                 </thead>
@@ -739,6 +773,8 @@
                 data.validSymbols != null ? data.validSymbols.toLocaleString() : '--';
             document.getElementById('filteredCount').textContent =
                 data.filteredCount != null ? data.filteredCount.toLocaleString() : '--';
+            document.getElementById('sentimentCount').textContent =
+                data.sentimentCount != null ? data.sentimentCount.toLocaleString() : '--';
             document.getElementById('elapsed').textContent =
                 data.elapsed != null ? data.elapsed + 's' : '--';
 
@@ -758,8 +794,13 @@
                 );
             }
 
-            // 按标签数量降序排序，标签多的排前面
-            tokens.sort((a, b) => b.tags.length - a.tags.length);
+            // 有消息评分的排前面，其次按标签数量排序
+            tokens.sort((a, b) => {
+                const scoreA = getSentimentScore(a);
+                const scoreB = getSentimentScore(b);
+                if (scoreA !== scoreB) return scoreB - scoreA;
+                return b.tags.length - a.tags.length;
+            });
 
             renderTagBar(data.tokens || []);
             renderTable(tokens);
@@ -832,6 +873,24 @@
             }).join('');
         }
 
+        function getSentimentScore(t) {
+            const score = t.sentiment && t.sentiment.score;
+            return score === null || score === undefined || Number.isNaN(Number(score)) ? -1 : Number(score);
+        }
+
+        function buildSentiment(t) {
+            const s = t.sentiment || {};
+            const score = getSentimentScore(t);
+            const scoreText = score >= 0 ? score : '待分析';
+            const scoreCls = score >= 0 ? 'sentiment-score has-score' : 'sentiment-score';
+            const label = [s.label, s.action].filter(Boolean).join(' · ');
+            const url = s.detail_url || `https://liuqinh2s.github.io/crypto-mint/data/results/${String(t.symbol || '').replace(/(USDT|USDC|FDUSD|USD)$/i, '')}-latest.json`;
+            return `<div>
+              <a class="${scoreCls}" href="${esc(url)}" target="_blank" rel="noopener">${esc(scoreText)}</a>
+              <div class="sentiment-meta">${label ? esc(label) : 'Crypto Mint'}<br><a class="sentiment-link" href="${esc(url)}" target="_blank" rel="noopener">消息面</a></div>
+            </div>`;
+        }
+
         function selectSingleTag(tagKey) {
             activeTagFilter = [tagKey];
             if (currentData) renderData(currentData);
@@ -861,6 +920,7 @@
             H: ${fmtPrice(t.high_24h)}<br>L: ${fmtPrice(t.low_24h)}
           </td>
           <td style="${frColor}">${(t.fund_rate * 100).toFixed(4)}%</td>
+          <td>${buildSentiment(t)}</td>
           <td>${buildTags(t.tags)}</td>
         </tr>`;
             }).join('');
@@ -891,6 +951,9 @@
             <span>H: ${fmtPrice(t.high_24h)}</span>
             <span>L: ${fmtPrice(t.low_24h)}</span>
             <span>费率: ${(t.fund_rate * 100).toFixed(4)}%</span>
+          </div>
+          <div class="card-prices">
+            <span>消息评分: ${buildSentiment(t)}</span>
           </div>
           <div class="card-meta"><span>#${i + 1}</span></div>
         </div>`;

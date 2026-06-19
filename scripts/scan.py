@@ -27,6 +27,8 @@ DEFAULT_DATA_DIR = ROOT / "runtime" / "scans"
 CONFIG_PATH = ROOT / "config.local.json"
 
 BITGET_API = "https://api.bitget.com"
+CRYPTO_MINT_BASE = "https://liuqinh2s.github.io/crypto-mint/"
+CRYPTO_MINT_WORKFLOW_URL = "https://api.github.com/repos/liuqinh2s/crypto-mint/actions/workflows/analyze-token.yml/dispatches"
 PRODUCT_TYPE = "USDT-FUTURES"
 CYCLES = ["1D", "4H", "1H", "15m"]
 
@@ -103,6 +105,138 @@ async def fetch_json(session: aiohttp.ClientSession, url: str, proxy_url: str | 
             log.warning("请求失败 (%d/5) %s: %s", attempt + 1, url[:80], exc)
         await asyncio.sleep(2 * (attempt + 1))
     return None
+
+
+def symbol_to_news_token(symbol: str) -> str:
+    token = re.sub(r"(USDT|USDC|FDUSD|USD)$", "", symbol.upper())
+    return token.lstrip("$")
+
+
+def crypto_mint_result_url(token: str) -> str:
+    return f"{CRYPTO_MINT_BASE}data/results/{token}-latest.json"
+
+
+async def dispatch_crypto_mint_analysis(
+    session: aiohttp.ClientSession,
+    symbols: list[str],
+    cfg: dict[str, Any],
+) -> bool:
+    tokens = [symbol_to_news_token(symbol) for symbol in symbols]
+    tokens = [token for token in dict.fromkeys(tokens) if token]
+    if not tokens:
+        return False
+
+    token = (
+        os.environ.get("CRYPTO_MINT_GITHUB_TOKEN")
+        or cfg.get("crypto_mint_github_token")
+        or cfg.get("github_token")
+    )
+    if not token:
+        log.info("未配置 CRYPTO_MINT_GITHUB_TOKEN，跳过自动触发消息面分析")
+        return False
+
+    payload = {
+        "ref": cfg.get("crypto_mint_branch", "main"),
+        "inputs": {
+            "token": " ".join(tokens),
+            "exchange": cfg.get("crypto_mint_exchange", "binance"),
+        },
+    }
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with session.post(
+            CRYPTO_MINT_WORKFLOW_URL,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        ) as resp:
+            if resp.status in (200, 201, 202, 204):
+                log.info("已批量触发 Crypto Mint 分析: %s", " ".join(tokens))
+                return True
+            text = await resp.text()
+            log.warning("触发 Crypto Mint 失败 HTTP %d: %s", resp.status, text[:200])
+    except Exception as exc:
+        log.warning("触发 Crypto Mint 异常: %s", exc)
+    return False
+
+
+async def fetch_crypto_mint_sentiment(
+    session: aiohttp.ClientSession,
+    symbols: list[str],
+    proxy_url: str | None,
+) -> dict[str, dict[str, Any]]:
+    if not symbols:
+        return {}
+
+    tokens_by_symbol = {symbol: symbol_to_news_token(symbol) for symbol in symbols}
+    index_url = f"{CRYPTO_MINT_BASE}data/search-index.json"
+    index = await fetch_json(session, f"{index_url}?t={int(time.time())}", proxy_url)
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in (index or {}).get("results", []):
+        token = str(item.get("token") or "").upper()
+        if token:
+            indexed[token] = item
+
+    sem = asyncio.Semaphore(8)
+    result: dict[str, dict[str, Any]] = {}
+
+    async def _fetch_one(symbol: str, token: str) -> None:
+        indexed_item = indexed.get(token, {})
+        detail_path = indexed_item.get("latestPath") or f"data/results/{token}-latest.json"
+        detail_url = f"{CRYPTO_MINT_BASE}{detail_path}"
+        sentiment = {
+            "token": token,
+            "available": False,
+            "score": None,
+            "label": "",
+            "action": "",
+            "name": indexed_item.get("name", ""),
+            "generated_at": indexed_item.get("generatedAt", ""),
+            "detail_url": detail_url,
+            "summary": "",
+        }
+
+        if not indexed_item:
+            result[symbol] = sentiment
+            return
+
+        async with sem:
+            data = await fetch_json(session, f"{detail_url}?t={int(time.time())}", proxy_url)
+
+        analysis = (data or {}).get("analysis", {})
+        rating = analysis.get("rating", {})
+        recommendation = analysis.get("recommendation", {})
+        score = rating.get("score", indexed_item.get("score"))
+        try:
+            score = float(score)
+            if score.is_integer():
+                score = int(score)
+        except (TypeError, ValueError, AttributeError):
+            score = None
+
+        sentiment.update({
+            "available": score is not None,
+            "score": score,
+            "label": rating.get("label") or indexed_item.get("label", ""),
+            "action": recommendation.get("action") or indexed_item.get("action", ""),
+            "name": analysis.get("name") or indexed_item.get("name", ""),
+            "generated_at": (data or {}).get("generatedAt") or analysis.get("generatedAt") or indexed_item.get("generatedAt", ""),
+            "summary": analysis.get("summary", ""),
+        })
+        result[symbol] = sentiment
+
+    await asyncio.gather(*[
+        _fetch_one(symbol, token)
+        for symbol, token in tokens_by_symbol.items()
+    ], return_exceptions=True)
+    return result
 
 
 async def fetch_all_symbols(session: aiohttp.ClientSession, proxy_url: str | None) -> list[str]:
@@ -347,7 +481,33 @@ async def main() -> None:
         if token["symbol"] in fairy:
             token["tags"].append("仙人指路")
 
-    result_tokens.sort(key=lambda item: len(item["tags"]), reverse=True)
+    daily_up_symbols = [
+        token["symbol"] for token in result_tokens
+        if default_selected(token["tags"])
+    ]
+    log.info("获取消息面评分: %d 个日K趋势向上代币", len(daily_up_symbols))
+    async with aiohttp.ClientSession(headers=headers) as session:
+        if cfg.get("crypto_mint_auto_dispatch", False):
+            await dispatch_crypto_mint_analysis(session, daily_up_symbols, cfg)
+        sentiment_map = await fetch_crypto_mint_sentiment(session, daily_up_symbols, proxy_url)
+
+    sentiment_count = 0
+    for token in result_tokens:
+        sentiment = sentiment_map.get(token["symbol"])
+        if sentiment:
+            token["sentiment"] = sentiment
+            if sentiment.get("available"):
+                sentiment_count += 1
+
+    result_tokens.sort(
+        key=lambda item: (
+            item.get("sentiment", {}).get("score")
+            if item.get("sentiment", {}).get("score") is not None
+            else -1,
+            len(item["tags"]),
+        ),
+        reverse=True,
+    )
     default_count = sum(1 for token in result_tokens if default_selected(token["tags"]))
     elapsed = round(time.time() - scan_start, 1)
 
@@ -356,6 +516,7 @@ async def main() -> None:
         "totalSymbols": len(symbols),
         "validSymbols": valid_count,
         "filteredCount": default_count,
+        "sentimentCount": sentiment_count,
         "totalTagged": len(result_tokens),
         "btcDirection": btc_direction,
         "elapsed": elapsed,

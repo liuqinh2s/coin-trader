@@ -46,6 +46,14 @@ cp config.local.example.json config.local.json
 
 `config.local.json` 不会入库。
 
+消息面评分来自 [Crypto Mint](https://liuqinh2s.github.io/crypto-mint/) 已发布的结果。若要在扫描时自动把“日K趋势向上”的代币批量提交给 Crypto Mint，在 `config.local.json` 打开：
+
+```json
+"crypto_mint_auto_dispatch": true
+```
+
+并填写 `crypto_mint_github_token`，或通过环境变量 `CRYPTO_MINT_GITHUB_TOKEN` 提供 GitHub token。未配置 token 时，扫描仍会读取已有消息面评分，缺失的币会在前端显示为“待分析”。
+
 ## 展示扫描
 
 执行一次公开行情扫描：
