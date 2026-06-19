@@ -284,6 +284,11 @@
             color: #fff;
         }
 
+        .tag-daily-up {
+            background: #2e7d32;
+            color: #fff;
+        }
+
         .tag-btc {
             background: #f0b90b;
             color: #0a0e17;
@@ -576,8 +581,8 @@
             <h1>🔍 合约代币扫描器</h1>
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
-                默认组合：趋势共振 + 波动充足 + 未追高（点击标签可自由增减组合）<br>
-                可选标签：成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 盘整突破<br>
+                默认标签：日K趋势向上（点击标签可自由增减组合）<br>
+                可选标签：趋势共振 · 波动充足 · 未追高 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 盘整突破<br>
                 BTC大盘方向为全局条件，不可作为筛选标签
             </p>
         </header>
@@ -653,7 +658,7 @@
     <div id="toast" class="toast hidden"></div>
     <script>
         let currentData = null;
-        const DEFAULT_FILTER = ['趋势共振', '波动充足', '未追高'];
+        const DEFAULT_FILTER = ['日K趋势向上'];
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
@@ -661,6 +666,7 @@
         // 标签样式映射
         const TAG_STYLES = {
             '趋势共振': 'tag-trend',
+            '日K趋势向上': 'tag-daily-up',
             '成交量异动': 'tag-volume',
             'BTC看多': 'tag-btc',
             '未追高': 'tag-safe',
@@ -810,7 +816,7 @@
         function clearFilter() {
             activeTagFilter = [...DEFAULT_FILTER];
             if (currentData) renderData(currentData);
-            showToast('已恢复默认组合');
+            showToast('已恢复默认标签');
         }
 
         function buildTags(tags) {

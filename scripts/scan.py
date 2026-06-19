@@ -43,6 +43,7 @@ from core.scanner import (  # noqa: E402
 )
 from core.strategy import (  # noqa: E402
     is_15m_trend_up,
+    is_1d_boll_trend_up,
     is_1d_trend_up,
     is_1h_trend_up,
     is_4h_trend_up,
@@ -228,7 +229,7 @@ def is_trend_confluence(sym: dict) -> bool:
 
 def default_selected(tags: list[str]) -> bool:
     base_tags = {tag.split("(")[0] for tag in tags}
-    return {"趋势共振", "波动充足", "未追高"}.issubset(base_tags)
+    return "日K趋势向上" in base_tags
 
 
 def cleanup_old_scans(data_dir: Path, retention_days: int) -> int:
@@ -290,6 +291,12 @@ async def main() -> None:
         try:
             if is_trend_confluence(sym):
                 tags.append("趋势共振")
+        except (IndexError, KeyError, ValueError):
+            pass
+
+        try:
+            if is_1d_boll_trend_up(sym):
+                tags.append("日K趋势向上")
         except (IndexError, KeyError, ValueError):
             pass
 
@@ -365,7 +372,7 @@ async def main() -> None:
     if cleaned:
         log.info("清理 %d 个旧数据文件", cleaned)
     log.info(
-        "完成: %d个交易对, %d个可分析, %d个有标签, 默认组合%d个, 耗时%ss",
+        "完成: %d个交易对, %d个可分析, %d个有标签, 默认标签%d个, 耗时%ss",
         len(symbols), valid_count, len(result_tokens), default_count, elapsed,
     )
 

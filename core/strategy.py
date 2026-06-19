@@ -119,6 +119,19 @@ def is_1d_trend_up(sym: dict) -> bool:
     )
 
 
+def is_1d_boll_trend_up(sym: dict) -> bool:
+    """日K趋势向上: 上轨上行 + 中轨连续上行 + 下轨下行"""
+    boll = sym["1D"]["bolling"]
+    upper = boll["Upper Band"]
+    mid = boll["Middle Band"]
+    lower = boll["Lower Band"]
+    return (
+        upper[-1] > upper[-2]
+        and mid[-1] > mid[-2] > mid[-3]
+        and lower[-1] < lower[-2]
+    )
+
+
 # =============================================================================
 #  BTC 大盘方向
 # =============================================================================
