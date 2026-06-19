@@ -112,8 +112,8 @@ def symbol_to_news_token(symbol: str) -> str:
     return token.lstrip("$")
 
 
-def crypto_mint_result_url(token: str) -> str:
-    return f"{CRYPTO_MINT_BASE}data/results/{token}-latest.json"
+def crypto_mint_token_url(token: str) -> str:
+    return f"{CRYPTO_MINT_BASE}{token}"
 
 
 async def dispatch_crypto_mint_analysis(
@@ -199,7 +199,7 @@ async def fetch_crypto_mint_sentiment(
             "action": "",
             "name": indexed_item.get("name", ""),
             "generated_at": indexed_item.get("generatedAt", ""),
-            "detail_url": detail_url,
+            "detail_url": crypto_mint_token_url(token),
             "summary": "",
         }
 

@@ -884,7 +884,8 @@
             const scoreText = score >= 0 ? score : '待分析';
             const scoreCls = score >= 0 ? 'sentiment-score has-score' : 'sentiment-score';
             const label = [s.label, s.action].filter(Boolean).join(' · ');
-            const url = s.detail_url || `https://liuqinh2s.github.io/crypto-mint/data/results/${String(t.symbol || '').replace(/(USDT|USDC|FDUSD|USD)$/i, '')}-latest.json`;
+            const token = String((s.token || t.symbol || '')).replace(/(USDT|USDC|FDUSD|USD)$/i, '').toUpperCase();
+            const url = s.detail_url || `https://liuqinh2s.github.io/crypto-mint/${token}`;
             return `<div>
               <a class="${scoreCls}" href="${esc(url)}" target="_blank" rel="noopener">${esc(scoreText)}</a>
               <div class="sentiment-meta">${label ? esc(label) : 'Crypto Mint'}<br><a class="sentiment-link" href="${esc(url)}" target="_blank" rel="noopener">消息面</a></div>
