@@ -50,7 +50,7 @@ cp config.local.example.json config.local.json
 
 未配置 token 时，扫描仍会读取已有消息面评分，缺失的币会在前端显示为“待分析”。
 
-为避免一次提交太多代币导致 Crypto Mint 工作流超时，缺失结果会按 `crypto_mint_dispatch_batch_size` 小批次提交，默认每批 4 个；每轮扫描最多提交 `crypto_mint_dispatch_limit` 个，默认 8 个。新提交的消息面分析需要等待 Crypto Mint 的 GitHub Actions 跑完并发布，扫描脚本默认最多等待 180 秒，页面也会每 15 秒从 Crypto Mint 最新索引补一次评分。
+为避免一次提交太多代币导致 Crypto Mint 工作流超时，缺失结果会按 `crypto_mint_dispatch_batch_size` 小批次提交，默认每批 4 个；默认提交全部缺失币。如果需要限速，可以额外设置 `crypto_mint_dispatch_limit`。新提交的消息面分析需要等待 Crypto Mint 的 GitHub Actions 跑完并发布，扫描脚本默认最多等待 180 秒，页面也会每 15 秒从 Crypto Mint 最新索引补一次评分，最多持续约 10 分钟。
 
 ## 展示扫描
 

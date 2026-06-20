@@ -248,8 +248,9 @@ async def dispatch_missing_crypto_mint_analysis(
     if not missing:
         log.info("Crypto Mint 已有全部日K向上代币的结果")
         return 0, []
-    dispatch_limit = int(cfg.get("crypto_mint_dispatch_limit", len(missing)))
-    dispatch_limit = max(1, dispatch_limit)
+    dispatch_limit_raw = cfg.get("crypto_mint_dispatch_limit")
+    dispatch_limit = int(dispatch_limit_raw) if dispatch_limit_raw else len(missing)
+    dispatch_limit = max(1, min(dispatch_limit, len(missing)))
     limited = missing[:dispatch_limit]
     log.info(
         "Crypto Mint 缺失 %d 个结果，本轮提交 %d 个",

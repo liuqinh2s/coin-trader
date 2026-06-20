@@ -882,7 +882,7 @@
             if (!hasPendingCryptoMintScores(data)) return;
 
             let attempts = 0;
-            const maxAttempts = 16;
+            const maxAttempts = 40;
             cryptoMintPollTimer = setInterval(async () => {
                 attempts += 1;
                 await hydrateCryptoMintScores(data, true);
