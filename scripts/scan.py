@@ -155,39 +155,34 @@ async def dispatch_crypto_mint_analysis(
         "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    batch_size = int(cfg.get("crypto_mint_dispatch_batch_size", 4))
-    batch_size = max(1, min(batch_size, 8))
-    dispatched = 0
+    token_input = ",".join(tokens)
+    payload = {
+        "ref": cfg.get("crypto_mint_branch", "main"),
+        "inputs": {
+            "token": token_input,
+            "exchange": cfg.get("crypto_mint_exchange", "other"),
+        },
+    }
 
-    for i in range(0, len(tokens), batch_size):
-        batch = tokens[i:i + batch_size]
-        payload = {
-            "ref": cfg.get("crypto_mint_branch", "main"),
-            "inputs": {
-                "token": " ".join(batch),
-                "exchange": cfg.get("crypto_mint_exchange", "binance"),
-            },
-        }
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with session.post(
-                CRYPTO_MINT_WORKFLOW_URL,
-                headers=headers,
-                json=payload,
-                timeout=timeout,
-            ) as resp:
-                if resp.status in (200, 201, 202, 204):
-                    dispatched += len(batch)
-                    log.info("已触发 Crypto Mint 分析: %s", " ".join(batch))
-                else:
-                    text = await resp.text()
-                    log.warning("触发 Crypto Mint 失败 HTTP %d: %s", resp.status, text[:200])
-        except Exception as exc:
-            log.warning("触发 Crypto Mint 异常: %s", exc)
-        await asyncio.sleep(1)
-
-    return dispatched
+    try:
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with session.post(
+            CRYPTO_MINT_WORKFLOW_URL,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        ) as resp:
+            if resp.status in (200, 201, 202, 204):
+                log.info(
+                    "已触发 Crypto Mint 分析: token=%s exchange=%s",
+                    token_input, payload["inputs"]["exchange"],
+                )
+                return len(tokens)
+            text = await resp.text()
+            log.warning("触发 Crypto Mint 失败 HTTP %d: %s", resp.status, text[:200])
+    except Exception as exc:
+        log.warning("触发 Crypto Mint 异常: %s", exc)
+    return 0
 
 
 async def fetch_crypto_mint_index(
@@ -248,16 +243,9 @@ async def dispatch_missing_crypto_mint_analysis(
     if not missing:
         log.info("Crypto Mint 已有全部日K向上代币的结果")
         return 0, []
-    dispatch_limit_raw = cfg.get("crypto_mint_dispatch_limit")
-    dispatch_limit = int(dispatch_limit_raw) if dispatch_limit_raw else len(missing)
-    dispatch_limit = max(1, min(dispatch_limit, len(missing)))
-    limited = missing[:dispatch_limit]
-    log.info(
-        "Crypto Mint 缺失 %d 个结果，本轮提交 %d 个",
-        len(missing), len(limited),
-    )
-    dispatched = await dispatch_crypto_mint_analysis(session, limited, cfg)
-    return dispatched, limited[:dispatched]
+    log.info("Crypto Mint 缺失 %d 个结果，将一次性提交", len(missing))
+    dispatched = await dispatch_crypto_mint_analysis(session, missing, cfg)
+    return dispatched, missing[:dispatched]
 
 
 async def fetch_crypto_mint_sentiment(
