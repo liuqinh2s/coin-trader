@@ -146,8 +146,7 @@ async def dispatch_crypto_mint_analysis(
 
     token = get_crypto_mint_github_token(cfg)
     if not token:
-        log.info("未配置 CRYPTO_MINT_GITHUB_TOKEN，跳过自动触发消息面分析")
-        return 0
+        raise RuntimeError("未配置 CRYPTO_MINT_GITHUB_TOKEN，无法触发 Crypto Mint 分析")
 
     headers = {
         "Accept": "application/vnd.github+json",

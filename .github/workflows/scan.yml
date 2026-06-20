@@ -29,7 +29,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Check Crypto Mint token
+        env:
+          CRYPTO_MINT_GITHUB_TOKEN: ${{ secrets.CRYPTO_MINT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$CRYPTO_MINT_GITHUB_TOKEN" ]; then
+            echo "CRYPTO_MINT_GITHUB_TOKEN is missing or not available to this workflow."
+            exit 1
+          fi
+
       - name: Run scan
+        env:
+          CRYPTO_MINT_GITHUB_TOKEN: ${{ secrets.CRYPTO_MINT_GITHUB_TOKEN }}
+          CRYPTO_MINT_AUTO_DISPATCH: "true"
         run: python scripts/scan.py
 
       - name: Build site
