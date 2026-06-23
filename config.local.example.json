@@ -12,6 +12,7 @@
   "max_7d_gain_mult": 2.7,
   "max_boll_width_mult": 2.7,
   "max_close_above_upper_mult": 1.1,
+  "coingecko_demo_api_key": "",
   "proxy": {
     "enabled": false,
     "host": "127.0.0.1",

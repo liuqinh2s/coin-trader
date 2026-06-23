@@ -491,6 +491,7 @@ async def main() -> None:
             ttl_seconds=int(cfg.get("auto_trade", {}).get("market_cap_cache_ttl_seconds", 86400)),
             required_symbols=list(all_sym.keys()),
             proxy_url=proxy_url,
+            api_key=cfg.get("coingecko_demo_api_key") or None,
         )
         market_cap_hits = sum(
             1 for item in market_caps.values()

@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from infra.env import NEED_PROXY, PROXIES
+from infra.env import COINGECKO_DEMO_API_KEY, NEED_PROXY, PROXIES
 from infra.logger import log
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,6 +54,7 @@ def get_market_cap_map(
     force_refresh: bool = False,
     required_symbols: list[str] | None = None,
     proxy_url: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Return a map keyed by lowercase token symbol.
 
@@ -79,10 +80,16 @@ def get_market_cap_map(
     page = 1
     min_market_cap_seen = None
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else (PROXIES if NEED_PROXY else None)
+    api_key = api_key if api_key is not None else COINGECKO_DEMO_API_KEY
     headers = {
         "Accept": "application/json",
         "User-Agent": "coin-trader/1.0",
     }
+    if api_key:
+        headers["x-cg-demo-api-key"] = api_key
+        log.info("CoinGecko 使用 Demo API Key（限额绑定到 key）")
+    else:
+        log.info("CoinGecko 未配置 API Key，使用共享 IP 免费额度（易被限流）")
     while True:
         params = {
             "vs_currency": "usd",

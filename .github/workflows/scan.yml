@@ -42,6 +42,7 @@ jobs:
         env:
           CRYPTO_MINT_GITHUB_TOKEN: ${{ secrets.CRYPTO_MINT_GITHUB_TOKEN }}
           CRYPTO_MINT_AUTO_DISPATCH: "true"
+          COINGECKO_DEMO_API_KEY: ${{ secrets.COINGECKO_DEMO_API_KEY }}
         run: python scripts/scan.py
 
       - name: Build site

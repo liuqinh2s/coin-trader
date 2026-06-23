@@ -45,3 +45,8 @@ BINANCE_API_SECRET: str = os.getenv("BINANCE_API_SECRET", "")
 DINGTALK_WEBHOOK: str = os.getenv("DINGTALK_WEBHOOK", "")
 # 加签密钥（可选，如果机器人开启了加签安全设置）
 DINGTALK_SECRET: str = os.getenv("DINGTALK_SECRET", "")
+
+# ---- CoinGecko 市值数据 ----
+# Demo API Key（免费申请）。配置后请求会带 x-cg-demo-api-key 头，
+# 限额绑定到 key 而非共享 IP，可绕开 GitHub Actions 共享 IP 被限流的问题。
+COINGECKO_DEMO_API_KEY: str = os.getenv("COINGECKO_DEMO_API_KEY", "")
