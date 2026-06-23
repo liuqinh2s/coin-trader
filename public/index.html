@@ -966,7 +966,7 @@
                 const onclick = filterable ? `onclick="filterByTag('${esc(key)}', event)"` : '';
                 const disabledCls = filterable ? '' : ' disabled';
                 const title = filterable
-                    ? `title="点击只看: ${esc(key)}；Ctrl/⌘ 点击可组合"`
+                    ? `title="点击切换筛选: ${esc(key)}"`
                     : `title="${esc(key)}（全局条件，不可筛选）"`;
                 return `<span class="tag-filter${isActive}${disabledCls}" ${onclick} ${title}>
           ${esc(key)} <span class="count">${count}</span>
@@ -975,12 +975,6 @@
         }
 
         function filterByTag(tagKey, event) {
-            const multi = event && (event.ctrlKey || event.metaKey);
-            if (!multi) {
-                activeTagFilter = [tagKey];
-                if (currentData) renderData(currentData);
-                return;
-            }
             const idx = activeTagFilter.indexOf(tagKey);
             if (idx >= 0) {
                 activeTagFilter.splice(idx, 1);
