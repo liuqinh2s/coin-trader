@@ -35,7 +35,11 @@ CYCLES = ["1W", "1D", "4H", "1H", "15m"]
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
-from core.auto_strategy import AUTO_TRADE_TAG, evaluate_auto_trade_signal  # noqa: E402
+from core.auto_strategy import (  # noqa: E402
+    AUTO_TRADE_TAG,
+    evaluate_auto_trade_conditions,
+    evaluate_auto_trade_signal,
+)
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
@@ -520,17 +524,30 @@ async def main() -> None:
         except (IndexError, KeyError, ValueError):
             pass
 
+        auto_trade_cfg = cfg.get("auto_trade", {})
+        market_cap_info = get_symbol_market_cap(key, market_caps)
+        auto_conditions = evaluate_auto_trade_conditions(
+            sym,
+            market_cap_info,
+            min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
+            max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
+            min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
+            low_60d_min_pct=float(auto_trade_cfg.get("low_60d_min_pct", 0.01)),
+            low_60d_max_pct=float(auto_trade_cfg.get("low_60d_max_pct", 0.20)),
+        )
+        tags.extend([tag for tag, ok in auto_conditions.items() if ok])
+
         auto_signal = evaluate_auto_trade_signal(
             key,
             sym,
-            get_symbol_market_cap(key, market_caps),
-            min_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_min", 5_000_000)),
-            max_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_max", 1_000_000_000)),
-            min_quote_volume=float(cfg.get("auto_trade", {}).get("min_quote_volume_1d", 500_000)),
-            atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),
-            atr_stop_multi=float(cfg.get("auto_trade", {}).get("atr_stop_multi", 1.2)),
-            low_60d_min_pct=float(cfg.get("auto_trade", {}).get("low_60d_min_pct", 0.01)),
-            low_60d_max_pct=float(cfg.get("auto_trade", {}).get("low_60d_max_pct", 0.20)),
+            market_cap_info,
+            min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
+            max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
+            min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
+            atr_min=float(auto_trade_cfg.get("atr_min", 0.001)),
+            atr_stop_multi=float(auto_trade_cfg.get("atr_stop_multi", 1.2)),
+            low_60d_min_pct=float(auto_trade_cfg.get("low_60d_min_pct", 0.01)),
+            low_60d_max_pct=float(auto_trade_cfg.get("low_60d_max_pct", 0.20)),
         )
         if auto_signal:
             tags.append(AUTO_TRADE_TAG)

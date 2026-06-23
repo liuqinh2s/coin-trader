@@ -373,6 +373,41 @@
             color: #fff;
         }
 
+        .tag-small-cap {
+            background: #00897b;
+            color: #fff;
+        }
+
+        .tag-low-zone {
+            background: #43a047;
+            color: #fff;
+        }
+
+        .tag-consolidation-end {
+            background: #5e35b1;
+            color: #fff;
+        }
+
+        .tag-volume-ok {
+            background: #fb8c00;
+            color: #0a0e17;
+        }
+
+        .tag-midline {
+            background: #039be5;
+            color: #fff;
+        }
+
+        .tag-trend-up {
+            background: #7cb342;
+            color: #0a0e17;
+        }
+
+        .tag-turnover-ok {
+            background: #546e7a;
+            color: #fff;
+        }
+
         .no-data {
             text-align: center;
             padding: 40px;
@@ -615,8 +650,8 @@
             <h1>🔍 合约代币扫描器</h1>
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
-                默认标签：日K趋势向上（点击标签可自由增减组合）<br>
-                可选标签：趋势共振 · 波动充足 · 未追高 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 盘整突破<br>
+                默认标签：小市值 + 低位 + 横盘结束 + 有量 + 价格&gt;中轨 + 趋势向上 + 成交额合格<br>
+                可选标签：自动交易 · 小市值 · 低位 · 横盘结束 · 有量 · 价格&gt;中轨 · 趋势向上 · 成交额合格 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 盘整突破<br>
                 日K趋势向上币会同步读取 Crypto Mint 消息面评分，并按评分从高到低排序
             </p>
         </header>
@@ -697,7 +732,7 @@
     <div id="toast" class="toast hidden"></div>
     <script>
         let currentData = null;
-        const DEFAULT_FILTER = ['日K趋势向上'];
+        const DEFAULT_FILTER = ['小市值', '低位', '横盘结束', '有量', '价格>中轨', '趋势向上', '成交额合格'];
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
@@ -719,6 +754,13 @@
             '盘整突破': 'tag-breakout',
             '强势启动': 'tag-strong-start',
             '自动交易': 'tag-auto-trade',
+            '小市值': 'tag-small-cap',
+            '低位': 'tag-low-zone',
+            '横盘结束': 'tag-consolidation-end',
+            '有量': 'tag-volume-ok',
+            '价格>中轨': 'tag-midline',
+            '趋势向上': 'tag-trend-up',
+            '成交额合格': 'tag-turnover-ok',
         };
 
         // 不支持点击筛选的标签（非筛币条件）

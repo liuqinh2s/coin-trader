@@ -7,6 +7,15 @@ from typing import Any
 
 
 AUTO_TRADE_TAG = "自动交易"
+AUTO_TRADE_FILTER_TAGS = [
+    "小市值",
+    "低位",
+    "横盘结束",
+    "有量",
+    "价格>中轨",
+    "趋势向上",
+    "成交额合格",
+]
 
 
 @dataclass
@@ -52,6 +61,66 @@ def _has_enough_daily(sym: dict) -> bool:
         and len(boll.get("Middle Band", [])) >= 5
         and len(atr) >= 15
     )
+
+
+def evaluate_auto_trade_conditions(
+    sym: dict,
+    market_cap_info: dict[str, Any] | None,
+    min_market_cap: float = 5_000_000,
+    max_market_cap: float = 1_000_000_000,
+    min_quote_volume: float = 500_000,
+    low_60d_min_pct: float = 0.01,
+    low_60d_max_pct: float = 0.20,
+) -> dict[str, bool]:
+    """Evaluate each visible auto-trading filter tag independently."""
+    result = {tag: False for tag in AUTO_TRADE_FILTER_TAGS}
+
+    market_cap = float((market_cap_info or {}).get("market_cap") or 0)
+    result["小市值"] = min_market_cap < market_cap < max_market_cap
+
+    if not _has_enough_daily(sym):
+        return result
+
+    day = sym["1D"]
+    data = day["data"]
+    boll = day["bolling"]
+    upper = boll["Upper Band"]
+    lower = boll["Lower Band"]
+    mid = boll["Middle Band"]
+
+    close = float(data[-1][4])
+    lows_60 = [float(x[3]) for x in data[-60:]]
+    low_60d = min(lows_60)
+    if low_60d > 0:
+        low_position_pct = (close - low_60d) / low_60d
+        result["低位"] = low_60d_min_pct <= low_position_pct <= low_60d_max_pct
+
+    if all(_finite(arr[i]) for arr in (upper, lower, mid) for i in (-4, -3, -2, -1)):
+        bandwidths = [_bandwidth(boll, i) for i in range(len(data))]
+        if all(_finite(bandwidths[i]) for i in (-4, -3, -2, -1)):
+            result["横盘结束"] = (
+                upper[-4] >= upper[-3] >= upper[-2]
+                and lower[-4] <= lower[-3] <= lower[-2]
+                and bandwidths[-4] >= bandwidths[-3] >= bandwidths[-2]
+                and upper[-1] >= upper[-2]
+                and lower[-1] <= lower[-2]
+            )
+
+    quote_volume = float(data[-1][6])
+    result["成交额合格"] = quote_volume >= min_quote_volume
+    vol_ma20 = sum(float(x[6]) for x in data[-21:-1]) / 20
+    result["有量"] = vol_ma20 > 0 and quote_volume > vol_ma20
+
+    result["价格>中轨"] = _finite(mid[-1]) and close > float(mid[-1])
+
+    daily_up = _finite(mid[-1]) and _finite(mid[-2]) and _finite(mid[-3]) and mid[-1] > mid[-2] > mid[-3]
+    week = sym.get("1W", {})
+    week_mid = (week.get("bolling") or {}).get("Middle Band") or []
+    valid_week_mid = [x for x in week_mid if _finite(x)]
+    week_ok = len(valid_week_mid) < 2 or valid_week_mid[-1] >= valid_week_mid[-2]
+    result["趋势向上"] = daily_up and week_ok
+
+    return result
 
 
 def evaluate_auto_trade_signal(
