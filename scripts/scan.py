@@ -490,7 +490,13 @@ async def main() -> None:
         market_caps = get_market_cap_map(
             ttl_seconds=int(cfg.get("auto_trade", {}).get("market_cap_cache_ttl_seconds", 86400)),
             required_symbols=list(all_sym.keys()),
+            proxy_url=proxy_url,
         )
+        market_cap_hits = sum(
+            1 for item in market_caps.values()
+            if item.get("market_cap") is not None
+        )
+        log.info("CoinGecko 市值缓存可用: %d 个 symbol 有市值", market_cap_hits)
     except Exception as exc:
         market_caps = {}
         log.warning("CoinGecko 市值数据不可用，自动交易标签本轮不可用: %s", exc)

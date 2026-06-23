@@ -53,6 +53,7 @@ def get_market_cap_map(
     ttl_seconds: int = 86400,
     force_refresh: bool = False,
     required_symbols: list[str] | None = None,
+    proxy_url: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Return a map keyed by lowercase token symbol.
 
@@ -63,14 +64,25 @@ def get_market_cap_map(
     if not force_refresh:
         fresh = _fresh_symbols(cached, ttl_seconds)
         required = {_symbol_from_exchange(symbol) for symbol in (required_symbols or [])}
-        if fresh and (not required or required.issubset(fresh.keys())):
+        fresh_with_market_cap = {
+            symbol for symbol, info in fresh.items()
+            if info.get("market_cap") is not None
+        }
+        if fresh and (
+            not required
+            or required.issubset(fresh.keys()) and required.intersection(fresh_with_market_cap)
+        ):
             return fresh
 
     symbols: dict[str, dict[str, Any]] = {}
     updated_at = time.time()
     page = 1
     min_market_cap_seen = None
-    proxies = PROXIES if NEED_PROXY else None
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else (PROXIES if NEED_PROXY else None)
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "coin-trader/1.0",
+    }
     while True:
         params = {
             "vs_currency": "usd",
@@ -79,7 +91,13 @@ def get_market_cap_map(
             "page": page,
             "sparkline": "false",
         }
-        resp = requests.get(COINGECKO_MARKETS_URL, params=params, proxies=proxies, timeout=20)
+        resp = requests.get(
+            COINGECKO_MARKETS_URL,
+            params=params,
+            proxies=proxies,
+            headers=headers,
+            timeout=20,
+        )
         if resp.status_code == 429:
             raise RuntimeError("CoinGecko 限流，无法刷新市值缓存")
         resp.raise_for_status()
