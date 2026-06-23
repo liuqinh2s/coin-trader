@@ -956,14 +956,17 @@
             }
             tagBar.classList.remove('hidden');
 
+            for (const key of activeTagFilter) {
+                if (tagCounts[key] === undefined) tagCounts[key] = 0;
+            }
             const sorted = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
             tagBar.innerHTML = sorted.map(([key, count]) => {
                 const isActive = activeTagFilter.includes(key) ? ' active' : '';
                 const filterable = !NON_FILTERABLE.has(key);
-                const onclick = filterable ? `onclick="filterByTag('${esc(key)}')"` : '';
+                const onclick = filterable ? `onclick="filterByTag('${esc(key)}', event)"` : '';
                 const disabledCls = filterable ? '' : ' disabled';
                 const title = filterable
-                    ? `title="点击切换: ${esc(key)}"`
+                    ? `title="点击只看: ${esc(key)}；Ctrl/⌘ 点击可组合"`
                     : `title="${esc(key)}（全局条件，不可筛选）"`;
                 return `<span class="tag-filter${isActive}${disabledCls}" ${onclick} ${title}>
           ${esc(key)} <span class="count">${count}</span>
@@ -971,7 +974,13 @@
             }).join('');
         }
 
-        function filterByTag(tagKey) {
+        function filterByTag(tagKey, event) {
+            const multi = event && (event.ctrlKey || event.metaKey);
+            if (!multi) {
+                activeTagFilter = [tagKey];
+                if (currentData) renderData(currentData);
+                return;
+            }
             const idx = activeTagFilter.indexOf(tagKey);
             if (idx >= 0) {
                 activeTagFilter.splice(idx, 1);
