@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from decimal import Decimal, ROUND_DOWN
 from time import sleep
 
 from api.factory import get_exchange
@@ -23,6 +24,13 @@ from infra.logger import log, notify
 from models import AccountState
 from core.order import order
 from core.position import cut_profit, track_price
+from core.auto_strategy import (
+    AUTO_TRADE_TAG,
+    build_auto_trade_reason,
+    evaluate_auto_trade_signal,
+)
+from core.market_cap import get_market_cap_map, get_symbol_market_cap
+from core.risk_cache import load_position_risk
 from core.scanner import (
     detect_volume_anomaly, select_by_volume,
     select_by_volume_surge, find_fairy_guide, find_leading_coins,
@@ -111,74 +119,189 @@ def _min_price_7d(sym: dict) -> float:
     return min(float(sym["1D"]["data"][-i][3]) for i in range(1, days + 1))
 
 
+def _format_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _contract_min_size_and_places(ex, symbol: str) -> tuple[Decimal, int]:
+    contracts = ex.get_contracts(symbol, ex.PRODUCT_TYPE)
+    data = contracts.get("data") or []
+    info = data[0] if isinstance(data, list) and data else data
+    if not isinstance(info, dict):
+        raise ValueError("empty contract info")
+    min_size = Decimal(str(info.get("minTradeNum", "0")))
+    volume_place = int(info.get("volumePlace", 8))
+    return min_size, volume_place
+
+
+def _round_size_down(size: Decimal, volume_place: int) -> Decimal:
+    quantum = Decimal("1").scaleb(-volume_place)
+    return size.quantize(quantum, rounding=ROUND_DOWN)
+
+
+def _estimate_position_risk(symbol: str, pos: dict, all_sym: dict,
+                            risk_cache: dict, cfg: dict) -> float:
+    cached = risk_cache.get(symbol)
+    if cached and cached.get("actual_risk_usdt") is not None:
+        return float(cached["actual_risk_usdt"])
+
+    sym = all_sym.get(symbol)
+    if not sym:
+        log.warning("%s 无法估算已有持仓风险：缺少K线，按0计入", symbol)
+        return 0.0
+    try:
+        day = sym["1D"]
+        bb_mid = float(day["bolling"]["Middle Band"][-1])
+        atr = float(day["atr"][-1])
+        stop_price = bb_mid - atr * cfg.get("atr_stop_multi", 1.2)
+        open_price = float(pos.get("openPriceAvg", 0))
+        size = float(pos.get("available", pos.get("total", 0)))
+        return max(open_price - stop_price, 0) * size
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        log.warning("%s 估算已有持仓风险失败: %s", symbol, exc)
+        return 0.0
+
+
+def _current_total_risk(state: AccountState, all_sym: dict, cfg: dict) -> float:
+    risk_cache = load_position_risk()
+    total = 0.0
+    for symbol, pos in state.position.items():
+        if pos.get("holdSide") != "long":
+            continue
+        total += _estimate_position_risk(symbol, pos, all_sym, risk_cache, cfg)
+    return total
+
+
 # =============================================================================
 #  选币下单
 # =============================================================================
 
 def _select_and_order(all_sym: dict, state: AccountState) -> None:
-    """根据 buy_list 执行下单，加分项越多优先级越高"""
+    """按自动交易策略执行下单。旧加分项不参与真实交易。"""
     cfg = get_config()
+    auto_cfg = cfg.get("auto_trade", {})
     ex = get_exchange()
 
     if not state.buy_list:
-        log.info("可以开多的币：无")
+        log.info("自动交易候选：无")
         return
 
-    # 按加分项数量降序排序，过滤掉没有加分项的币
     sorted_keys = sorted(
-        [k for k in state.buy_list if state.buy_list[k]["bonus"]],
-        key=lambda k: len(state.buy_list[k]["bonus"]),
-        reverse=True,
+        state.buy_list,
+        key=lambda k: state.buy_list[k]["signal"].score,
     )
-
-    # 先通知所有候选币（含无加分的），再只对有加分的下单
-    labels = []
-    for k in sorted(state.buy_list, key=lambda k: len(state.buy_list[k]["bonus"]), reverse=True):
-        bonus = state.buy_list[k]["bonus"]
-        tag = f"{k}({', '.join(bonus)})" if bonus else f"{k}(无加分,跳过)"
-        labels.append(tag)
-    log.info("可以开多的币（按优先级）：%s", '; '.join(labels))
-
-    if not sorted_keys:
-        log.info("没有带加分项的币，跳过开仓")
-        return
+    log.info("自动交易候选（按优先级）：%s", ", ".join(sorted_keys))
 
     acc = ex.get_accounts(ex.PRODUCT_TYPE)
     equity = float(acc["data"][0]["accountEquity"])
     state.update_balance(equity)
     if state.position_balance <= 0:
-        log.warning("⚠️ 账户余额不足: %s，跳过下单", equity)
+        log.warning("账户余额不足: %s，跳过下单", equity)
         return
 
+    risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
+    max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
+    max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
+    leverage = int(cfg.get("leverage", 10))
+    current_risk = _current_total_risk(state, all_sym, auto_cfg)
+    log.info(
+        "当前总风险占用: %.4f / %.4f USDT (%.2f%% / %.2f%%)",
+        current_risk, equity * max_total_risk,
+        current_risk / equity * 100 if equity else 0,
+        max_total_risk * 100,
+    )
+
     for key in sorted_keys:
-        cur_price = all_sym[key]["15m"]["data"][-1][4]
-        res = ex.open_count(
-            key, ex.PRODUCT_TYPE, "USDT",
-            str(state.position_balance), cur_price,
-            str(cfg.get("leverage", 10)),
-        )
-        log.info("币种：%s 可开数量：%s", key, res['data']['size'])
-
-        min_size = state.position_balance * 0.1 / float(cur_price)
-        if float(res["data"]["size"]) / 2 < min_size:
-            log.info("可开数量不足")
-            continue
-
         max_positions = cfg.get("max_long_positions", 3)
         if len(state.position) >= max_positions:
             log.info("已达最大持仓数 %d，停止开仓", max_positions)
             break
+
         buy_info = state.buy_list[key]
-        order(key, all_sym[key]["15m"]["data"], "BUY", state,
-              reason=buy_info.get("reason", ""),
-              bonus=buy_info.get("bonus", []))
+        signal = buy_info["signal"]
+        if current_risk >= equity * max_total_risk:
+            log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
+            break
+
+        stop_distance = signal.close - signal.stop_price
+        if stop_distance <= 0:
+            log.info("%s 止损距离异常，跳过", key)
+            continue
+
+        risk_budget = min(equity * risk_per_trade, equity * max_total_risk - current_risk)
+        risk_size = Decimal(str(risk_budget / stop_distance))
+        max_notional_size = Decimal(str((equity * max_symbol_notional_pct) / signal.close))
+        size = min(risk_size, max_notional_size)
+
+        try:
+            min_size, volume_place = _contract_min_size_and_places(ex, key)
+        except Exception as exc:
+            log.warning("%s 获取交易所最小下单量失败，严格跳过: %s", key, exc)
+            continue
+
+        size = _round_size_down(size, volume_place)
+        if size < min_size:
+            log.info("%s 计算仓位 %s 小于交易所最小下单量 %s，跳过", key, size, min_size)
+            continue
+
+        notional = float(size) * signal.close
+        planned_risk = float(size) * stop_distance
+        margin_need = notional / leverage if leverage else notional
+        try:
+            res = ex.open_count(
+                key, ex.PRODUCT_TYPE, "USDT",
+                str(margin_need), str(signal.close), str(leverage),
+            )
+            exchange_size = Decimal(str(res["data"]["size"]))
+            if exchange_size < size:
+                size = _round_size_down(exchange_size, volume_place)
+                planned_risk = float(size) * stop_distance
+                notional = float(size) * signal.close
+                if size < min_size:
+                    log.info("%s 交易所可开数量 %s 小于最小下单量 %s，跳过", key, size, min_size)
+                    continue
+        except Exception as exc:
+            log.warning("%s 查询可开数量失败，跳过: %s", key, exc)
+            continue
+
+        if current_risk + planned_risk > equity * max_total_risk:
+            log.info("%s 开仓后总风险超限，跳过", key)
+            continue
+
+        reason = buy_info.get("reason") or build_auto_trade_reason(signal)
+        risk_info = {
+            "strategy": AUTO_TRADE_TAG,
+            "planned_risk_usdt": planned_risk,
+            "risk_per_trade": risk_per_trade,
+            "total_risk_before_usdt": current_risk,
+            "stop_price": signal.stop_price,
+            "atr": signal.atr,
+            "bb_mid": signal.bb_mid,
+            "market_cap": signal.market_cap,
+            "market_cap_source": signal.market_cap_source,
+            "notional_usdt": notional,
+        }
+        log.info(
+            "%s 自动交易开仓: size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
+            key, size, notional, planned_risk, signal.stop_price,
+            signal.market_cap, signal.market_cap_source.get("id"),
+        )
+        result = order(
+            key, all_sym[key]["1D"]["data"], "BUY", state,
+            reason=reason, bonus=buy_info.get("bonus", []),
+            size=_format_decimal(size),
+            preset_stop_loss=f"{signal.stop_price:.12g}",
+            risk_info=risk_info,
+        )
+        if result is not None:
+            current_risk += planned_risk
 
 
 # =============================================================================
 #  市场扫描
 # =============================================================================
 
-def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
+def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
     """
     扫描全市场，筛选符合策略条件的币种
     核心策略：成交量异动 + 多周期趋势共振
@@ -314,6 +437,87 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
     return all_sym
 
 
+def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
+    """Scan the market and build auto-trading candidates only."""
+    cfg = get_config()
+    auto_cfg = cfg.get("auto_trade", {})
+
+    ex = get_exchange()
+    all_position = ex.get_all_position(ex.PRODUCT_TYPE)
+    state.position = {x["symbol"]: x for x in all_position["data"]}
+    state.buy_list = {}
+    all_sym: dict = {}
+
+    start_time = int(get_time_ms())
+    asyncio.run(get_all_data(["1W", "1D", "4H", "1H", "15m"], all_sym, state=state))
+    if state.position:
+        asyncio.run(get_all_data(["1D"], all_sym, list(state.position.keys()), state=state))
+    elapsed = (int(get_time_ms()) - start_time) / 1000
+    log.info("抓一遍所有币的数据，耗费时间：%.1fs", elapsed)
+
+    compute_indicators(all_sym)
+
+    try:
+        market_caps = get_market_cap_map(
+            ttl_seconds=int(auto_cfg.get("market_cap_cache_ttl_seconds", 86400)),
+            required_symbols=list(all_sym.keys()),
+        )
+    except Exception as exc:
+        market_caps = {}
+        log.warning("CoinGecko 市值数据不可用，本轮不产生自动交易候选: %s", exc)
+
+    all_keys: list[str] = []
+    valid_symbols: list[str] = []
+    new_symbols: list[str] = []
+    no_data_symbols: list[str] = []
+    old_data_symbols: dict = {"15m": [], "1H": [], "4H": [], "1D": [], "1W": []}
+
+    for key, sym in all_sym.items():
+        all_keys.append(key)
+        if key in state.position or key == "BTCUSDT":
+            continue
+        if _is_too_new(sym):
+            new_symbols.append(key)
+            continue
+        if _has_no_data(sym):
+            no_data_symbols.append(key)
+            continue
+        if not _is_data_fresh(sym, key, old_data_symbols):
+            continue
+
+        valid_symbols.append(key)
+        signal = evaluate_auto_trade_signal(
+            key,
+            sym,
+            get_symbol_market_cap(key, market_caps),
+            min_market_cap=float(auto_cfg.get("market_cap_min", 5_000_000)),
+            max_market_cap=float(auto_cfg.get("market_cap_max", 1_000_000_000)),
+            min_quote_volume=float(auto_cfg.get("min_quote_volume_1d", 500_000)),
+            atr_min=float(auto_cfg.get("atr_min", 0.001)),
+            atr_stop_multi=float(auto_cfg.get("atr_stop_multi", 1.2)),
+            low_60d_min_pct=float(auto_cfg.get("low_60d_min_pct", 0.01)),
+            low_60d_max_pct=float(auto_cfg.get("low_60d_max_pct", 0.20)),
+        )
+        if signal:
+            state.buy_list[key] = {
+                "reason": build_auto_trade_reason(signal),
+                "bonus": [AUTO_TRADE_TAG],
+                "signal": signal,
+            }
+            log.info(
+                "%s 自动交易候选: market_cap=%.0f source=%s low60=%.2f%% vol_ratio=%.2f bw=%.4f",
+                key, signal.market_cap, signal.market_cap_source.get("id"),
+                signal.low_position_pct * 100, signal.volume_ratio, signal.bandwidth,
+            )
+
+    log.info(
+        "扫描完成，全部交易对:%d 可分析:%d 自动交易候选:%d 新币:%s 空数据:%s 数据旧:%s",
+        len(all_keys), len(valid_symbols), len(state.buy_list),
+        new_symbols, no_data_symbols, old_data_symbols,
+    )
+    return all_sym
+
+
 # =============================================================================
 #  仓位扫描与主循环
 # =============================================================================
@@ -349,17 +553,9 @@ def _scan_position(state: AccountState) -> None:
 
 
 def _full_scan_and_order(state: AccountState, is_four_hour: bool = False) -> dict:
-    """执行完整的市场扫描 + 下单 + 辅助分析"""
+    """执行完整的自动交易扫描 + 下单。"""
     all_sym = scan_market(state, is_four_hour)
-
-    # 小成交量+不错涨幅，作为加分项
-    small_vol = set(select_by_volume(all_sym, state))
-    for key in small_vol:
-        if key in state.buy_list:
-            state.buy_list[key]["bonus"].append("小成交量+不错涨幅")
-
     _select_and_order(all_sym, state)
-    select_by_volume_surge(all_sym, state)
     return all_sym
 
 

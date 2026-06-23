@@ -297,10 +297,15 @@ class BinanceClient(ExchangeAPI):
             if s["symbol"] == self._to_symbol(symbol):
                 price_precision = s.get("pricePrecision", 2)
                 qty_precision = s.get("quantityPrecision", 3)
+                min_qty = "0.001"
+                for flt in s.get("filters", []):
+                    if flt.get("filterType") == "LOT_SIZE":
+                        min_qty = str(flt.get("minQty", min_qty))
+                        break
                 return {"data": [{
                     "pricePlace": str(price_precision),
                     "volumePlace": str(qty_precision),
-                    "minTradeNum": "0.001",
+                    "minTradeNum": min_qty,
                     "symbol": s["symbol"],
                 }]}
         return {"data": [{"pricePlace": "2", "volumePlace": "3",

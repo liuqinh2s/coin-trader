@@ -30,11 +30,14 @@ BITGET_API = "https://api.bitget.com"
 CRYPTO_MINT_BASE = "https://liuqinh2s.github.io/crypto-mint/"
 CRYPTO_MINT_WORKFLOW_URL = "https://api.github.com/repos/liuqinh2s/crypto-mint/actions/workflows/analyze-token.yml/dispatches"
 PRODUCT_TYPE = "USDT-FUTURES"
-CYCLES = ["1D", "4H", "1H", "15m"]
+CYCLES = ["1W", "1D", "4H", "1H", "15m"]
 
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
+from core.auto_strategy import AUTO_TRADE_TAG, evaluate_auto_trade_signal  # noqa: E402
+from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
+from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
     detect_consolidation_breakout,
     detect_early_strong_trend,
@@ -457,7 +460,7 @@ def cleanup_old_scans(data_dir: Path, retention_days: int) -> int:
 
 async def main() -> None:
     scan_start = time.time()
-    cfg = _load_local_config()
+    cfg = {**get_config(), **_load_local_config()}
     proxy_url = _get_proxy_url(cfg)
     data_dir = _get_data_dir(cfg)
     max_concurrent = int(cfg.get("max_concurrent_requests", 10))
@@ -478,6 +481,15 @@ async def main() -> None:
 
     log.info("计算技术指标...")
     compute_indicators(all_sym)
+
+    try:
+        market_caps = get_market_cap_map(
+            ttl_seconds=int(cfg.get("auto_trade", {}).get("market_cap_cache_ttl_seconds", 86400)),
+            required_symbols=list(all_sym.keys()),
+        )
+    except Exception as exc:
+        market_caps = {}
+        log.warning("CoinGecko 市值数据不可用，自动交易标签本轮不可用: %s", exc)
 
     btc_up = is_btc_trend_up(all_sym)
     btc_down = is_btc_trend_down(all_sym)
@@ -507,6 +519,21 @@ async def main() -> None:
                 tags.append("日K趋势向上")
         except (IndexError, KeyError, ValueError):
             pass
+
+        auto_signal = evaluate_auto_trade_signal(
+            key,
+            sym,
+            get_symbol_market_cap(key, market_caps),
+            min_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_min", 5_000_000)),
+            max_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_max", 1_000_000_000)),
+            min_quote_volume=float(cfg.get("auto_trade", {}).get("min_quote_volume_1d", 500_000)),
+            atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),
+            atr_stop_multi=float(cfg.get("auto_trade", {}).get("atr_stop_multi", 1.2)),
+            low_60d_min_pct=float(cfg.get("auto_trade", {}).get("low_60d_min_pct", 0.01)),
+            low_60d_max_pct=float(cfg.get("auto_trade", {}).get("low_60d_max_pct", 0.20)),
+        )
+        if auto_signal:
+            tags.append(AUTO_TRADE_TAG)
 
         anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", anomaly_dict)
         if anomaly_tf:
@@ -543,6 +570,8 @@ async def main() -> None:
             "low_24h": float(last_bar[3]),
             "change_pct": round(((close - open_price) / open_price * 100) if open_price else 0, 2),
             "fund_rate": round(total_fund_rate, 6),
+            "market_cap": round(auto_signal.market_cap, 2) if auto_signal else None,
+            "market_cap_source": auto_signal.market_cap_source if auto_signal else None,
             "tags": tags,
         })
 

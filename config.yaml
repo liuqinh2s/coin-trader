@@ -21,6 +21,21 @@ max_drawdown_threshold: 0.10
 # 24h 内爆仓次数阈值
 max_burst_count: 2
 
+# 自动交易策略（只做多，日K/周K布林趋势）
+auto_trade:
+  risk_per_trade: 0.02
+  max_total_risk: 0.10
+  max_symbol_notional_pct: 0.20
+  atr_length: 14
+  atr_stop_multi: 1.2
+  atr_min: 0.001
+  market_cap_min: 5000000
+  market_cap_max: 1000000000
+  market_cap_cache_ttl_seconds: 86400
+  min_quote_volume_1d: 500000
+  low_60d_min_pct: 0.01
+  low_60d_max_pct: 0.20
+
 # 持仓超时止损
 long_timeout_loss_days: 1       # 持仓超过24小时未盈利则平仓
 long_timeout_profit_days: 2     # 持仓超过48小时盈利未达标则平仓

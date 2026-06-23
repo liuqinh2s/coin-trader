@@ -12,6 +12,7 @@ import aiohttp
 import pandas as pd
 
 from analysis.bollinger_bands import calculate_bollinger_bands
+from analysis.atr import calculate_atr
 from analysis.ma import moving_average_np
 from analysis.macd import calculate_macd, calculate_ema
 from analysis.rsi import calculate_rsi
@@ -204,6 +205,7 @@ def compute_indicators(all_sym: dict) -> None:
     """为所有币种的所有周期计算技术指标（布林带、MACD、均线、RSI、成交量震荡率）"""
     cfg = get_config()
     ma_periods = cfg.get("ma_periods", [5, 10, 15, 20, 30, 40, 60, 80, 120, 160, 200])
+    atr_length = cfg.get("auto_trade", {}).get("atr_length", 14)
     for symbol in all_sym:
         for cycle in all_sym[symbol]:
             try:
@@ -211,6 +213,8 @@ def compute_indicators(all_sym: dict) -> None:
                 closes = [float(x[4]) for x in data]
                 all_sym[symbol][cycle]["bolling"] = calculate_bollinger_bands(closes)
                 all_sym[symbol][cycle]["macd"] = calculate_macd(closes)
+                if cycle == "1D":
+                    all_sym[symbol][cycle]["atr"] = calculate_atr(data, atr_length)
                 for period in ma_periods:
                     all_sym[symbol][cycle][f"ma{period}"] = moving_average_np(closes, period)
 

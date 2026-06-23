@@ -13,6 +13,7 @@ from infra.logger import log, notify
 from infra.trade_log import log_open, log_close
 from infra.util import get_human_time, get_time_ms
 from core.copy_trading import close_track_by_symbol, sync_tpsl_to_track
+from core.risk_cache import record_position_risk, remove_position_risk
 
 if TYPE_CHECKING:
     from models import AccountState
@@ -122,6 +123,7 @@ def close_position(symbol: str, state: AccountState,
         state.position.pop(symbol, None)
         state.price_track.pop(symbol, None)
         state.position_type = ""
+        remove_position_risk(symbol)
 
         duration = state.reset_position_time()
         log.info("做多天数：%s", _ms_to_days(duration))
@@ -140,7 +142,9 @@ def close_position(symbol: str, state: AccountState,
 
 
 def open_position(symbol: str, price: float, state: AccountState,
-                  reason: str = "", bonus: list[str] | None = None) -> None:
+                  reason: str = "", bonus: list[str] | None = None,
+                  size=None, preset_stop_loss: str = "",
+                  risk_info: dict | None = None) -> None:
     """开多仓"""
     ex = get_exchange()
     cfg = get_config()
@@ -153,17 +157,33 @@ def open_position(symbol: str, price: float, state: AccountState,
 
     min_usdt = cfg.get("min_usdt", 10)
     position_balance = min_usdt if state.is_shutdown else state.position_balance
-    log.info("下单量：%su  开多", position_balance)
+    order_size = size if size is not None else position_balance / price
+    log.info("下单数量：%s  开多 预设止损:%s", order_size, preset_stop_loss or "无")
 
     order_info = ex.live_order(
         symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
-        "buy", position_balance / price, "market", "open",
+        "buy", order_size, "market", "open",
+        preset_stop_loss=preset_stop_loss,
     )
     log.info("orderInfo: %s", order_info)
     detail = _wait_for_filled(symbol, order_info)
     log.info("orderDetail: %s", detail)
 
     filled_price = float(detail["data"]["priceAvg"])
+    filled_size = float(detail["data"]["baseVolume"])
+
+    if risk_info:
+        stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
+        actual_risk = max(filled_price - stop_price, 0) * filled_size
+        record_position_risk(symbol, {
+            **risk_info,
+            "symbol": symbol,
+            "open_price": filled_price,
+            "base_volume": filled_size,
+            "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
+            "actual_risk_usdt": actual_risk,
+            "stop_price": stop_price,
+        })
 
     # 写入内存持仓，避免再次从服务器拉取
     state.position[symbol] = {
@@ -214,7 +234,9 @@ def order(symbol: str, data: list, order_type: str,
           state: AccountState, only_close: bool = False,
           cut: dict | None = None,
           reason: str = "", bonus: list[str] | None = None,
-          close_reason: str = "", close_size=None) -> float | None:
+          close_reason: str = "", close_size=None,
+          size=None, preset_stop_loss: str = "",
+          risk_info: dict | None = None) -> float | None:
     """
     统一下单入口
 
@@ -237,7 +259,11 @@ def order(symbol: str, data: list, order_type: str,
             if pos and pos["holdSide"] == "long":
                 return 0.0  # 已持有多仓
             if not only_close:
-                open_position(symbol, price, state, reason=reason, bonus=bonus)
+                open_position(
+                    symbol, price, state, reason=reason, bonus=bonus,
+                    size=size, preset_stop_loss=preset_stop_loss,
+                    risk_info=risk_info,
+                )
         else:  # SELL = 平多
             pos = state.position.get(symbol)
             if pos and pos["holdSide"] == "long":

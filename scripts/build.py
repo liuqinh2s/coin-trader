@@ -75,6 +75,8 @@ else:
                 "high_24h": t.get("high_24h", 0),
                 "low_24h": t.get("low_24h", 0),
                 "fund_rate": t.get("fund_rate", 0),
+                "market_cap": t.get("market_cap"),
+                "market_cap_source": t.get("market_cap_source"),
                 "sentiment": t.get("sentiment"),
                 "tags": t.get("tags", []),
             })
