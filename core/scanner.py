@@ -239,7 +239,7 @@ def find_fairy_guide(all_sym: dict, state: AccountState) -> list[str]:
 def detect_bottom_volume_surge(sym: dict) -> bool:
     """
     底部放量：
-    最近 3 日成交额均大于 100 万 U，且均大于第一次放量日前 20 日
+    最近 3 日成交额均大于 50 万 U，且均大于第一次放量日前 20 日
     平均成交额的 5 倍；当前价格比第一次放量前一日高 30% 以上。
     """
     try:
@@ -257,7 +257,7 @@ def detect_bottom_volume_surge(sym: dict) -> bool:
         if baseline_avg <= 0:
             return False
 
-        if any(float(bar[6]) <= 1_000_000 for bar in surge_bars):
+        if any(float(bar[6]) <= 500_000 for bar in surge_bars):
             return False
         if any(float(bar[6]) <= baseline_avg * 5 for bar in surge_bars):
             return False
