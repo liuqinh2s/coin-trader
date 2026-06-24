@@ -43,6 +43,7 @@ from core.auto_strategy import (  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
+    detect_bottom_volume_surge,
     detect_consolidation_breakout,
     detect_early_strong_trend,
     detect_volume_anomaly,
@@ -576,6 +577,8 @@ async def main() -> None:
             tags.append("波动充足")
         if key in leading:
             tags.append("龙头币")
+        if detect_bottom_volume_surge(sym):
+            tags.append("底部放量")
         if detect_consolidation_breakout(sym, "1H"):
             tags.append("盘整突破")
         if detect_early_strong_trend(sym):

@@ -236,6 +236,39 @@ def find_fairy_guide(all_sym: dict, state: AccountState) -> list[str]:
     return result
 
 
+def detect_bottom_volume_surge(sym: dict) -> bool:
+    """
+    底部放量：
+    最近 3 日成交额均大于 1000 万 U，且均大于第一次放量日前 20 日
+    平均成交额的 7 倍；当前价格比第一次放量前一日高 30% 以上。
+    """
+    try:
+        data = sym.get("1D", {}).get("data") or []
+        if len(data) < 24:
+            return False
+
+        first_surge_idx = -3
+        baseline_bars = data[first_surge_idx - 20:first_surge_idx]
+        surge_bars = data[first_surge_idx:]
+        if len(baseline_bars) != 20 or len(surge_bars) != 3:
+            return False
+
+        baseline_avg = sum(float(bar[6]) for bar in baseline_bars) / 20
+        if baseline_avg <= 0:
+            return False
+
+        if any(float(bar[6]) <= 10_000_000 for bar in surge_bars):
+            return False
+        if any(float(bar[6]) <= baseline_avg * 7 for bar in surge_bars):
+            return False
+
+        price_before_surge = float(data[first_surge_idx - 1][4])
+        current_price = float(data[-1][4])
+        return price_before_surge > 0 and current_price > price_before_surge * 1.3
+    except (IndexError, KeyError, ValueError, TypeError):
+        return False
+
+
 # =============================================================================
 #  盘整放量突破检测（源自 temp.py 策略）
 # =============================================================================
