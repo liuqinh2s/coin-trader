@@ -39,20 +39,16 @@ auto_trade:
   min_quote_volume_1d: 500000
 
 # 持仓超时止损
-long_timeout_loss_days: 1       # 持仓超过24小时未盈利则平仓
-long_timeout_profit_days: 2     # 持仓超过48小时盈利未达标则平仓
-long_min_profit_pct: 0.06       # 止盈最低触发标准（48小时判断用）
+long_timeout_loss_days: 1 # 持仓超过24小时未盈利则平仓
+long_timeout_profit_days: 2 # 持仓超过48小时盈利未达标则平仓
+long_min_profit_pct: 0.06 # 止盈最低触发标准（48小时判断用）
 
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
 rebuy_cooldown_hours: 2
 
-# 分段止盈：每上涨2%，卖出剩余持仓的2%；下一段涨幅基于上一段触发价计算
-partial_take_profit_step_pct: 0.02
-partial_take_profit_sell_pct: 0.02
-
 # 回撤止盈：浮盈达到启动门槛后开始跟踪，从最高点回撤固定比例即止盈
-trailing_activation_pct: 0.06   # 浮盈达到6%才启动跟踪
-trailing_pullback_pct: 0.03     # 从最高点回撤3%即止盈
+trailing_activation_pct: 0.06 # 浮盈达到6%才启动跟踪
+trailing_pullback_pct: 0.03 # 从最高点回撤3%即止盈
 
 # =============================================================================
 #  防追高参数

@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from infra.config import get_config
@@ -22,54 +21,18 @@ def _ms_to_days(ms: int | float) -> float:
     return ms / 1000 / 60 / 60 / 24
 
 
-def _to_decimal(value) -> Decimal:
-    return Decimal(str(value))
-
-
-def _calc_partial_take_profit(
-    price: Decimal,
-    price_avg: Decimal,
-    available: Decimal,
-    track: dict,
-    cfg: dict,
-) -> tuple[int, Decimal, Decimal, Decimal] | None:
-    """计算需要补执行的分段止盈段数和卖出数量。"""
-    step_pct = _to_decimal(cfg.get("partial_take_profit_step_pct", 0.02))
-    sell_pct = _to_decimal(cfg.get("partial_take_profit_sell_pct", 0.02))
-    if step_pct <= 0 or sell_pct <= 0 or available <= 0:
-        return None
-
-    current_stage = int(track.get("partialTakeProfitCount", 0))
-    target_stage = current_stage
-    next_trigger = price_avg * ((Decimal("1") + step_pct) ** (target_stage + 1))
-    while price >= next_trigger:
-        target_stage += 1
-        next_trigger = price_avg * ((Decimal("1") + step_pct) ** (target_stage + 1))
-
-    crossed = target_stage - current_stage
-    if crossed <= 0:
-        return None
-
-    sell_ratio = Decimal("1") - ((Decimal("1") - sell_pct) ** crossed)
-    close_size = available * sell_ratio
-    trigger_price = price_avg * ((Decimal("1") + step_pct) ** target_stage)
-    return target_stage, close_size, sell_ratio, trigger_price
-
-
 def cut_profit(symbol: str, sym_data: dict, state: AccountState,
                order_fn) -> bool:
     """
     动态止盈逻辑（仅多仓）：
-    - 持仓超时止损 / 布林上轨下弯 / 阶梯回撤止盈 / 分段止盈
+    - 持仓超时止损 / 布林上轨下弯 / 回撤止盈
     :param order_fn: order 函数引用（避免循环导入）
     :return: True 表示已平仓
     """
     cfg = get_config()
     data = sym_data["15m"]["data"]
     price = float(data[-1][4])
-    price_dec = _to_decimal(data[-1][4])
     price_avg = float(state.position[symbol]["openPriceAvg"])
-    price_avg_dec = _to_decimal(state.position[symbol]["openPriceAvg"])
     price_high = float(state.price_track[symbol]["priceHigh"])
     c_time = int(state.position[symbol]["cTime"])
     hold_ms = int(data[-1][0]) - c_time
@@ -111,36 +74,6 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState,
         order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
         notify(f"止盈单，最高涨{high_pct:.2f}%，从高点回撤{pullback_pct * 100:.0f}%")
         return True
-
-    # 分段止盈：每上涨 2% 卖出剩余持仓的 2%，涨幅按上一段触发价复利计算。
-    available = _to_decimal(state.position[symbol]["available"])
-    partial = _calc_partial_take_profit(
-        price_dec, price_avg_dec, available, state.price_track[symbol], cfg,
-    )
-    if partial:
-        target_stage, close_size, sell_ratio, trigger_price = partial
-        stage_before = int(state.price_track[symbol].get("partialTakeProfitCount", 0))
-        trigger_pct = (trigger_price - price_avg_dec) / price_avg_dec * 100
-        current_pct = (price_dec - price_avg_dec) / price_avg_dec * 100
-        if target_stage == stage_before + 1:
-            stage_desc = f"第{target_stage}段"
-        else:
-            stage_desc = f"第{stage_before + 1}-{target_stage}段"
-        reason = (
-            f"分段止盈({stage_desc},涨至{trigger_pct:.2f}%,"
-            f"卖剩余{sell_ratio * 100:.2f}%)"
-        )
-        result = order_fn(
-            symbol, data, "SELL", state, only_close=True,
-            close_reason=reason, close_size=close_size,
-        )
-        if result is not None and symbol in state.price_track:
-            state.price_track[symbol]["partialTakeProfitCount"] = target_stage
-            state.price_track[symbol]["partialTakeProfitPrice"] = float(trigger_price)
-            notify(
-                f"分段止盈，{symbol} {stage_desc}，"
-                f"当前涨{current_pct:.2f}%，卖出剩余持仓{sell_ratio * 100:.2f}%"
-            )
 
     return False
 
