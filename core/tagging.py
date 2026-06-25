@@ -8,9 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.auto_strategy import (
-    AUTO_TRADE_TAG,
     evaluate_auto_trade_conditions,
-    evaluate_auto_trade_signal,
 )
 from core.scanner import (
     detect_bottom_volume_surge,
@@ -155,19 +153,6 @@ def build_symbol_tags(
         min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
     )
     tags.extend([tag for tag, ok in auto_conditions.items() if ok])
-
-    auto_signal = evaluate_auto_trade_signal(
-        key,
-        sym,
-        market_cap_info,
-        min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
-        max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
-        min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
-        atr_min=float(auto_trade_cfg.get("atr_min", 0.001)),
-        atr_stop_multi=float(auto_trade_cfg.get("atr_stop_multi", 1.2)),
-    )
-    if auto_signal:
-        tags.append(AUTO_TRADE_TAG)
 
     anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", anomaly_dict)
     if anomaly_tf:

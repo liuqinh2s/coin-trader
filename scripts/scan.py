@@ -36,7 +36,7 @@ CYCLES = ["1W", "1D", "4H", "1H", "15m"]
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
-from core.auto_strategy import AUTO_TRADE_TAG  # noqa: E402
+from core.auto_strategy import evaluate_auto_trade_signal  # noqa: E402
 from core.copy_symbols import parse_copy_symbols  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
@@ -499,8 +499,17 @@ async def main() -> None:
         if not tags:
             continue
 
-        # 市值仅在通过完整自动交易信号（含 AUTO_TRADE_TAG）时展示，行为同旧逻辑
-        has_auto = AUTO_TRADE_TAG in tags
+        # 市值仅在通过完整自动交易信号时展示，行为同旧逻辑但不再依赖展示标签。
+        has_auto = evaluate_auto_trade_signal(
+            key,
+            sym,
+            market_cap_info,
+            min_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_min", 5_000_000)),
+            max_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_max", 1_000_000_000)),
+            min_quote_volume=float(cfg.get("auto_trade", {}).get("min_quote_volume_1d", 500_000)),
+            atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),
+            atr_stop_multi=float(cfg.get("auto_trade", {}).get("atr_stop_multi", 1.2)),
+        ) is not None
         last_bar = sym["1D"]["data"][-1]
         close = float(last_bar[4])
         open_price = float(last_bar[1])
