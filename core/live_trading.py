@@ -495,8 +495,6 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             min_quote_volume=float(auto_cfg.get("min_quote_volume_1d", 500_000)),
             atr_min=float(auto_cfg.get("atr_min", 0.001)),
             atr_stop_multi=float(auto_cfg.get("atr_stop_multi", 1.2)),
-            low_60d_min_pct=float(auto_cfg.get("low_60d_min_pct", 0.01)),
-            low_60d_max_pct=float(auto_cfg.get("low_60d_max_pct", 0.20)),
         )
         if signal:
             state.buy_list[key] = {

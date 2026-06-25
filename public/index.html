@@ -318,16 +318,6 @@
             color: #fff;
         }
 
-        .tag-btc {
-            background: #f0b90b;
-            color: #0a0e17;
-            cursor: default;
-        }
-
-        .tag-btc:hover {
-            transform: none;
-        }
-
         .tag-safe {
             background: #00c853;
             color: #fff;
@@ -380,16 +370,6 @@
 
         .tag-small-cap {
             background: #00897b;
-            color: #fff;
-        }
-
-        .tag-low-zone {
-            background: #43a047;
-            color: #fff;
-        }
-
-        .tag-consolidation-end {
-            background: #5e35b1;
             color: #fff;
         }
 
@@ -655,8 +635,8 @@
             <h1>🔍 合约代币扫描器</h1>
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
-                默认标签：小市值 + 低位 + 横盘结束 + 有量 + 价格&gt;中轨 + 趋势向上 + 成交额合格<br>
-                可选标签：自动交易 · 小市值 · 低位 · 横盘结束 · 有量 · 价格&gt;中轨 · 趋势向上 · 成交额合格 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破<br>
+                默认标签：未追高 + 小市值 + 波动充足 + 日K趋势向上<br>
+                可选标签：自动交易 · 小市值 · 放量 · 价格&gt;中轨 · 趋势向上 · 成交额合格 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破<br>
                 日K趋势向上币会同步读取 Crypto Mint 消息面评分，并按评分从高到低排序
             </p>
         </header>
@@ -681,10 +661,6 @@
             <div class="stat">
                 <span class="label">消息评分</span>
                 <span class="val" id="sentimentCount">--</span>
-            </div>
-            <div class="stat">
-                <span class="label">BTC 方向</span>
-                <span class="val" id="btcDirection">--</span>
             </div>
             <div class="stat">
                 <span class="label">耗时</span>
@@ -737,7 +713,7 @@
     <div id="toast" class="toast hidden"></div>
     <script>
         let currentData = null;
-        const DEFAULT_FILTER = ['小市值', '低位', '横盘结束', '有量', '价格>中轨', '趋势向上', '成交额合格'];
+        const DEFAULT_FILTER = ['未追高', '小市值', '波动充足', '日K趋势向上'];
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
@@ -749,7 +725,6 @@
             '趋势共振': 'tag-trend',
             '日K趋势向上': 'tag-daily-up',
             '成交量异动': 'tag-volume',
-            'BTC看多': 'tag-btc',
             '未追高': 'tag-safe',
             '负费率': 'tag-fundrate',
             '龙头币': 'tag-leading',
@@ -761,16 +736,14 @@
             '强势启动': 'tag-strong-start',
             '自动交易': 'tag-auto-trade',
             '小市值': 'tag-small-cap',
-            '低位': 'tag-low-zone',
-            '横盘结束': 'tag-consolidation-end',
-            '有量': 'tag-volume-ok',
+            '放量': 'tag-volume-ok',
             '价格>中轨': 'tag-midline',
             '趋势向上': 'tag-trend-up',
             '成交额合格': 'tag-turnover-ok',
         };
 
         // 不支持点击筛选的标签（非筛币条件）
-        const NON_FILTERABLE = new Set(['BTC看多']);
+        const NON_FILTERABLE = new Set([]);
 
         function getTagClass(tag) {
             for (const [key, cls] of Object.entries(TAG_STYLES)) {
@@ -836,11 +809,6 @@
                 sentimentDispatched > 0 ? `${sentimentCount} / 提交${sentimentDispatched}` : sentimentCount;
             document.getElementById('elapsed').textContent =
                 data.elapsed != null ? data.elapsed + 's' : '--';
-
-            const btcEl = document.getElementById('btcDirection');
-            const dir = data.btcDirection || 'unknown';
-            btcEl.textContent = dir === 'up' ? '📈 看多' : dir === 'down' ? '📉 看空' : '➡️ 中性';
-            btcEl.className = 'val ' + (dir === 'up' ? 'up' : dir === 'down' ? 'down' : 'neutral');
 
             let tokens = data.tokens || [];
 

@@ -34,7 +34,7 @@ if not scan_files:
     empty = {
         "scanTime": None, "totalSymbols": 0, "validSymbols": 0,
         "filteredCount": 0, "sentimentCount": 0, "sentimentDispatched": 0,
-        "btcDirection": "unknown", "elapsed": 0,
+        "elapsed": 0,
         "tokens": [],
     }
     (SITE_DATA_DIR / "latest.json").write_text(json.dumps(empty), encoding="utf-8")

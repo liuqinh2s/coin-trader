@@ -57,9 +57,6 @@ from core.strategy import (  # noqa: E402
     is_1d_trend_up,
     is_1h_trend_up,
     is_4h_trend_up,
-    is_btc_12h_not_down,
-    is_btc_trend_down,
-    is_btc_trend_up,
 )
 
 logging.basicConfig(
@@ -503,12 +500,6 @@ async def main() -> None:
         market_caps = {}
         log.warning("CoinGecko 市值数据不可用，自动交易标签本轮不可用: %s", exc)
 
-    btc_up = is_btc_trend_up(all_sym)
-    btc_down = is_btc_trend_down(all_sym)
-    btc_12h_ok = is_btc_12h_not_down(all_sym)
-    btc_direction = "up" if btc_up else ("down" if btc_down else "neutral")
-    log.info("BTC 方向: %s, 12h_not_down=%s", btc_direction, btc_12h_ok)
-
     leading = set(find_leading_coins(all_sym))
     result_tokens = []
     valid_count = 0
@@ -540,8 +531,6 @@ async def main() -> None:
             min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
             max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
             min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
-            low_60d_min_pct=float(auto_trade_cfg.get("low_60d_min_pct", 0.01)),
-            low_60d_max_pct=float(auto_trade_cfg.get("low_60d_max_pct", 0.20)),
         )
         tags.extend([tag for tag, ok in auto_conditions.items() if ok])
 
@@ -554,8 +543,6 @@ async def main() -> None:
             min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
             atr_min=float(auto_trade_cfg.get("atr_min", 0.001)),
             atr_stop_multi=float(auto_trade_cfg.get("atr_stop_multi", 1.2)),
-            low_60d_min_pct=float(auto_trade_cfg.get("low_60d_min_pct", 0.01)),
-            low_60d_max_pct=float(auto_trade_cfg.get("low_60d_max_pct", 0.20)),
         )
         if auto_signal:
             tags.append(AUTO_TRADE_TAG)
@@ -563,10 +550,6 @@ async def main() -> None:
         anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", anomaly_dict)
         if anomaly_tf:
             tags.append(f"成交量异动({anomaly_tf})")
-        if btc_up:
-            tags.append("BTC看多")
-        if btc_12h_ok:
-            tags.append("BTC近12h未跌")
         if check_anti_chase(sym, cfg):
             tags.append("未追高")
 
@@ -662,7 +645,6 @@ async def main() -> None:
         "sentimentCount": sentiment_count,
         "sentimentDispatched": sentiment_dispatched,
         "totalTagged": len(result_tokens),
-        "btcDirection": btc_direction,
         "elapsed": elapsed,
         "tokens": result_tokens,
     }
