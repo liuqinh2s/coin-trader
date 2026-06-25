@@ -38,12 +38,16 @@ def min_price_7d(sym: dict) -> float:
 
 
 def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
-    """未追高：近 7 日涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
+    """未追高：当日涨幅、近 7 日涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
-        close = float(sym["1D"]["data"][-1][4])
+        data = sym["1D"]["data"]
+        close = float(data[-1][4])
         boll = sym["1D"]["bolling"]
+        open_price = float(data[-1][1])
+        daily_gain = (close - open_price) / open_price if open_price > 0 else 0
         return (
-            close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
+            daily_gain <= cfg.get("max_daily_gain", 0.20)
+            and close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
             and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
             and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
         )
