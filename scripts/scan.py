@@ -445,6 +445,19 @@ def check_short_anti_chase(sym: dict) -> bool:
         return False
 
 
+def check_ma60_up(sym: dict) -> bool:
+    """MA60向上：日K 的 MA60 今日 > 昨日"""
+    try:
+        ma60 = sym["1D"]["ma60"]
+        today, yesterday = ma60[-1], ma60[-2]
+        # 排除 NaN（rolling 均线早期为 NaN）
+        if today != today or yesterday != yesterday:
+            return False
+        return today > yesterday
+    except (IndexError, KeyError, ValueError, TypeError):
+        return False
+
+
 def is_trend_confluence(sym: dict) -> bool:
     return (
         is_15m_trend_up(sym, "15m")
@@ -568,6 +581,8 @@ async def main() -> None:
             tags.append("未追高")
         if check_short_anti_chase(sym):
             tags.append("短期未追高")
+        if check_ma60_up(sym):
+            tags.append("MA60向上")
 
         total_fund_rate = fund_rates.get(key, 0.0)
         if total_fund_rate < cfg.get("negative_funding_threshold", -0.05):
