@@ -134,6 +134,17 @@ class BinanceClient(ExchangeAPI):
         size = (available * lev) / price if price > 0 else 0
         return {"data": {"size": str(size)}}
 
+    def set_position_margin(self, symbol, product_type, margin_coin,
+                            amount, hold_side="long") -> dict:
+        pos_side = "LONG" if hold_side == "long" else "SHORT"
+        result = self._post("/fapi/v1/positionMargin", {
+            "symbol": self._to_symbol(symbol),
+            "positionSide": pos_side,
+            "amount": str(amount),
+            "type": 1,
+        })
+        return {"data": result}
+
     # ---- 订单 ----
 
     def live_order(self, symbol, product_type, margin_mode, margin_coin,

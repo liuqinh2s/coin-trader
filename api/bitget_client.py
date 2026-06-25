@@ -115,6 +115,17 @@ class BitgetClient(ExchangeAPI):
              f"&openPrice={open_price}&leverage={leverage}")
         return self._get("/api/v2/mix/account/open-count", q)
 
+    def set_position_margin(self, symbol, product_type, margin_coin,
+                            amount, hold_side="long") -> dict:
+        classic_symbol = symbol if "_" in symbol else f"{symbol}_UMCBL"
+        data = {
+            "symbol": classic_symbol,
+            "marginCoin": margin_coin,
+            "amount": str(amount),
+            "holdSide": hold_side,
+        }
+        return self._post("/api/mix/v1/account/setMargin", data)
+
     # ---- 订单 ----
 
     def live_order(self, symbol, product_type, margin_mode, margin_coin,

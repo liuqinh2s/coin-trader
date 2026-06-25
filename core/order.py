@@ -13,6 +13,7 @@ from infra.logger import log, notify
 from infra.trade_log import log_open, log_close
 from infra.util import get_human_time, get_time_ms
 from core.copy_trading import close_track_by_symbol, sync_tpsl_to_track
+from core.margin import estimate_extra_isolated_margin
 from core.risk_cache import record_position_risk, remove_position_risk
 
 if TYPE_CHECKING:
@@ -43,6 +44,55 @@ def _to_decimal(value) -> Decimal:
 def _format_size(size: Decimal) -> str:
     """格式化下单数量，避免科学计数法。"""
     return format(size.normalize(), "f")
+
+
+def _format_usdt_amount(amount: float) -> str:
+    dec = Decimal(str(amount)).quantize(Decimal("0.00000001"))
+    return format(dec.normalize(), "f")
+
+
+def _add_margin_to_protect_stop(
+    symbol: str,
+    filled_price: float,
+    filled_size: float,
+    stop_price: float,
+    state: AccountState,
+) -> dict:
+    cfg = get_config()
+    auto_cfg = cfg.get("auto_trade", {})
+    leverage = int(cfg.get("leverage", 10))
+    min_extra_margin = float(auto_cfg.get("min_extra_margin_usdt", 0.1))
+    plan = estimate_extra_isolated_margin(
+        filled_price, filled_size, stop_price, leverage, state.balance, auto_cfg,
+    )
+    result = {
+        "extra_margin_usdt": plan.extra_margin,
+        "required_margin_usdt": plan.required_margin,
+        "initial_margin_usdt": plan.initial_margin,
+        "target_liquidation_price": plan.target_liquidation_price,
+        "extra_margin_capped": plan.capped,
+        "extra_margin_added": False,
+    }
+    if plan.extra_margin < min_extra_margin:
+        log.info("%s ATR stop protection does not need extra margin: %.8f USDT", symbol, plan.extra_margin)
+        return result
+    if plan.capped:
+        log.warning(
+            "%s ATR stop protection extra margin capped at %.4f USDT",
+            symbol, plan.extra_margin,
+        )
+    try:
+        amount = _format_usdt_amount(plan.extra_margin)
+        resp = get_exchange().set_position_margin(
+            symbol, get_exchange().PRODUCT_TYPE, "USDT", amount, "long",
+        )
+        log.info("%s added isolated margin for ATR stop protection: %s USDT %s", symbol, amount, resp)
+        result["extra_margin_added"] = True
+        result["extra_margin_response"] = resp
+    except Exception as exc:
+        log.warning("%s failed to add isolated margin for ATR stop protection: %s", symbol, exc)
+        result["extra_margin_error"] = str(exc)
+    return result
 
 
 def close_position(symbol: str, state: AccountState,
@@ -177,6 +227,9 @@ def open_position(symbol: str, price: float, state: AccountState,
     if risk_info:
         stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
         actual_risk = max(filled_price - stop_price, 0) * filled_size
+        margin_protection = _add_margin_to_protect_stop(
+            symbol, filled_price, filled_size, stop_price, state,
+        )
         record_position_risk(symbol, {
             **risk_info,
             "symbol": symbol,
@@ -185,6 +238,7 @@ def open_position(symbol: str, price: float, state: AccountState,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
+            "margin_protection": margin_protection,
         })
 
     # 写入内存持仓，避免再次从服务器拉取

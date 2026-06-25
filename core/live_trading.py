@@ -23,6 +23,7 @@ from core.data_fetcher import get_all_data, compute_indicators
 from infra.logger import log, notify
 from models import AccountState
 from core.order import order
+from core.margin import estimate_extra_isolated_margin
 from core.position import cut_profit, track_price
 from core.auto_strategy import (
     AUTO_TRADE_TAG,
@@ -284,6 +285,16 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
 
+        margin_plan = estimate_extra_isolated_margin(
+            signal.close, float(size), signal.stop_price, leverage, equity, auto_cfg,
+        )
+        if margin_plan.capped:
+            log.info(
+                "%s required extra margin for ATR stop protection is above cap, skip: %.2f USDT",
+                key, margin_plan.required_margin - margin_plan.initial_margin,
+            )
+            continue
+
         reason = buy_info.get("reason") or build_auto_trade_reason(signal)
         risk_info = {
             "strategy": AUTO_TRADE_TAG,
@@ -296,6 +307,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap": signal.market_cap,
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
+            "estimated_extra_margin_usdt": margin_plan.extra_margin,
+            "target_liquidation_price": margin_plan.target_liquidation_price,
         }
         matched_tags = buy_info.get("tags", [])
         log.info(

@@ -36,6 +36,12 @@ class ExchangeAPI(ABC):
     # ---- 订单 ----
 
     @abstractmethod
+    def set_position_margin(self, symbol: str, product_type: str,
+                            margin_coin: str, amount: str,
+                            hold_side: str = "long") -> dict:
+        """Adjust isolated position margin. Positive amount adds margin."""
+
+    @abstractmethod
     def live_order(self, symbol: str, product_type: str, margin_mode: str,
                    margin_coin: str, side: str, size, order_type: str,
                    trade_side: str, price: str = "",
