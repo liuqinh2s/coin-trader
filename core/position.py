@@ -15,7 +15,7 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState,
                order_fn) -> bool:
     """
     动态止盈逻辑（仅多仓）：
-    - 布林上轨下弯 / 回撤止盈
+    - 回撤止盈
     :param order_fn: order 函数引用（避免循环导入）
     :return: True 表示已平仓
     """
@@ -27,13 +27,6 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState,
 
     if state.position[symbol]["holdSide"] != "long":
         return False
-
-    # 布林上轨连续两日下弯（需要至少 3 个有效值）
-    upper = [v for v in sym_data["1D"]["bolling"]["Upper Band"] if v == v]  # 过滤 NaN
-    if len(upper) >= 3 and upper[-1] < upper[-2] < upper[-3]:
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason="布林上轨连续下弯")
-        notify("布林线上轨下弯，平仓")
-        return True
 
     # 回撤止盈：浮盈达到启动门槛(默认6%)后开始跟踪，从最高点回撤固定比例(默认3%)即止盈
     activation_pct = cfg.get("trailing_activation_pct", 0.06)
