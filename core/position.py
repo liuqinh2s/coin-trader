@@ -7,25 +7,15 @@ from typing import TYPE_CHECKING
 
 from infra.config import get_config
 from infra.logger import log, notify
-from infra.util import get_time_ms
 
 if TYPE_CHECKING:
     from models import AccountState
-
-# 时间常量（毫秒）
-MS_1D = 24 * 60 * 60 * 1000
-
-
-def _ms_to_days(ms: int | float) -> float:
-    """毫秒 → 天"""
-    return ms / 1000 / 60 / 60 / 24
-
 
 def cut_profit(symbol: str, sym_data: dict, state: AccountState,
                order_fn) -> bool:
     """
     动态止盈逻辑（仅多仓）：
-    - 持仓超时止损 / 布林上轨下弯 / 回撤止盈
+    - 布林上轨下弯 / 回撤止盈
     :param order_fn: order 函数引用（避免循环导入）
     :return: True 表示已平仓
     """
@@ -34,29 +24,9 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState,
     price = float(data[-1][4])
     price_avg = float(state.position[symbol]["openPriceAvg"])
     price_high = float(state.price_track[symbol]["priceHigh"])
-    c_time = int(state.position[symbol]["cTime"])
-    hold_ms = int(data[-1][0]) - c_time
 
     if state.position[symbol]["holdSide"] != "long":
         return False
-
-    # 持仓超 N 天未盈利（默认1天=24小时）
-    timeout_loss = cfg.get("long_timeout_loss_days", 1)
-    if price <= price_avg and hold_ms > MS_1D * timeout_loss:
-        reason = f"超时未盈利({timeout_loss * 24:.0f}h)"
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-        notify(f"持仓超过{timeout_loss * 24:.0f}小时，未盈利，平仓")
-        return True
-
-    # 持仓超 N 天盈利未达止盈最低触发标准（默认2天=48小时）
-    timeout_profit = cfg.get("long_timeout_profit_days", 2)
-    min_profit_pct = cfg.get("long_min_profit_pct", 0.06)
-    if price < price_avg * (1 + min_profit_pct) and hold_ms > MS_1D * timeout_profit:
-        cur_pct = (price - price_avg) / price_avg * 100
-        reason = f"超时盈利不足({timeout_profit * 24:.0f}h, 当前{cur_pct:.1f}%<{min_profit_pct*100:.0f}%)"
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-        notify(f"持仓超过{timeout_profit * 24:.0f}小时，盈利未达{min_profit_pct*100:.0f}%，平仓")
-        return True
 
     # 布林上轨连续两日下弯（需要至少 3 个有效值）
     upper = [v for v in sym_data["1D"]["bolling"]["Upper Band"] if v == v]  # 过滤 NaN

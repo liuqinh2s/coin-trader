@@ -38,11 +38,6 @@ auto_trade:
   market_cap_cache_ttl_seconds: 86400
   min_quote_volume_1d: 500000
 
-# 持仓超时止损
-long_timeout_loss_days: 1 # 持仓超过24小时未盈利则平仓
-long_timeout_profit_days: 2 # 持仓超过48小时盈利未达标则平仓
-long_min_profit_pct: 0.06 # 止盈最低触发标准（48小时判断用）
-
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
 rebuy_cooldown_hours: 2
 
