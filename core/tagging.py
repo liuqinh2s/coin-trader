@@ -82,18 +82,14 @@ def check_ma60_up(sym: dict) -> bool:
 
 
 def check_short_pullback(sym: dict) -> bool:
-    """短期回调：近 6 根 4H K线中，任一根相对其前 6 根的高点跌幅 > 10%。"""
+    """短期回调：当前 4H 收盘价相对前 6 根 4H 高点回落至少 10%。"""
     try:
         data = sym["4H"]["data"]
-        if len(data) < 12:
+        if len(data) < 7:
             return False
-        for k in range(-6, 0):
-            prev6 = data[k - 6:k]
-            prev_high = max(float(b[2]) for b in prev6)
-            cur_low = float(data[k][3])
-            if prev_high > 0 and (prev_high - cur_low) / prev_high > 0.10:
-                return True
-        return False
+        prev_high = max(float(b[2]) for b in data[-7:-1])
+        current_price = float(data[-1][4])
+        return prev_high > 0 and current_price <= prev_high * 0.90
     except (IndexError, KeyError, ValueError):
         return False
 
