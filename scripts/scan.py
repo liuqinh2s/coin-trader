@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -573,6 +574,15 @@ async def main() -> None:
         last_bar = sym["1D"]["data"][-1]
         close = float(last_bar[4])
         open_price = float(last_bar[1])
+        atr_series = sym.get("1D", {}).get("atr") or []
+        atr_val = None
+        if atr_series:
+            try:
+                last_atr = float(atr_series[-1])
+                if math.isfinite(last_atr):
+                    atr_val = round(last_atr, 8)
+            except (TypeError, ValueError):
+                atr_val = None
         result_tokens.append({
             "symbol": key,
             "price": close,
@@ -580,6 +590,7 @@ async def main() -> None:
             "low_24h": float(last_bar[3]),
             "change_pct": round(((close - open_price) / open_price * 100) if open_price else 0, 2),
             "fund_rate": round(total_fund_rate, 6),
+            "atr": atr_val,
             "market_cap": round(auto_signal.market_cap, 2) if auto_signal else None,
             "market_cap_source": auto_signal.market_cap_source if auto_signal else None,
             "tags": tags,

@@ -699,6 +699,7 @@
                         <th>24h涨跌</th>
                         <th>24h高/低</th>
                         <th>资金费率</th>
+                        <th>ATR</th>
                         <th>消息评分</th>
                         <th>加分项标签</th>
                     </tr>
@@ -1032,6 +1033,7 @@
             H: ${fmtPrice(t.high_24h)}<br>L: ${fmtPrice(t.low_24h)}
           </td>
           <td style="${frColor}">${(t.fund_rate * 100).toFixed(4)}%</td>
+          <td style="font-size:11px;color:#7a8599">${t.atr != null ? fmtPrice(t.atr) : '--'}</td>
           <td>${buildSentiment(t)}</td>
           <td>${buildTags(t.tags)}</td>
         </tr>`;
@@ -1063,6 +1065,7 @@
             <span>H: ${fmtPrice(t.high_24h)}</span>
             <span>L: ${fmtPrice(t.low_24h)}</span>
             <span>费率: ${(t.fund_rate * 100).toFixed(4)}%</span>
+            <span>ATR: ${t.atr != null ? fmtPrice(t.atr) : '--'}</span>
           </div>
           <div class="card-prices">
             <span>消息评分: ${buildSentiment(t)}</span>
