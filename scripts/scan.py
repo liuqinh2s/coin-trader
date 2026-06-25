@@ -458,6 +458,23 @@ def check_ma60_up(sym: dict) -> bool:
         return False
 
 
+def check_short_pullback(sym: dict) -> bool:
+    """短期回调：近 6 根 4H K线中，任一根相对其前 6 根的高点跌幅 > 10%。"""
+    try:
+        data = sym["4H"]["data"]
+        if len(data) < 12:
+            return False
+        for k in range(-6, 0):
+            prev6 = data[k - 6:k]
+            prev_high = max(float(b[2]) for b in prev6)
+            cur_low = float(data[k][3])
+            if prev_high > 0 and (prev_high - cur_low) / prev_high > 0.10:
+                return True
+        return False
+    except (IndexError, KeyError, ValueError):
+        return False
+
+
 def is_trend_confluence(sym: dict) -> bool:
     return (
         is_15m_trend_up(sym, "15m")
@@ -583,6 +600,8 @@ async def main() -> None:
             tags.append("短期未追高")
         if check_ma60_up(sym):
             tags.append("MA60向上")
+        if check_short_pullback(sym):
+            tags.append("短期回调")
 
         total_fund_rate = fund_rates.get(key, 0.0)
         if total_fund_rate < cfg.get("negative_funding_threshold", -0.05):
