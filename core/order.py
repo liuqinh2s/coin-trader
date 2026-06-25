@@ -124,6 +124,8 @@ def close_position(symbol: str, state: AccountState,
         state.price_track.pop(symbol, None)
         state.position_type = ""
         remove_position_risk(symbol)
+        # 止盈/止损后进入冷却，冷却期内不再买入该币
+        state.cooldown[symbol] = int(get_time_ms())
 
         duration = state.reset_position_time()
         log.info("做多天数：%s", _ms_to_days(duration))

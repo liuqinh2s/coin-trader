@@ -27,19 +27,20 @@ from core.position import cut_profit, track_price
 from core.auto_strategy import (
     AUTO_TRADE_TAG,
     build_auto_trade_reason,
-    evaluate_auto_trade_signal,
+    compute_trade_risk,
 )
 from core.market_cap import get_market_cap_map, get_symbol_market_cap
 from core.risk_cache import load_position_risk
 from core.scanner import (
     detect_volume_anomaly, select_by_volume,
-    select_by_volume_surge, find_fairy_guide, find_leading_coins,
+    find_fairy_guide, find_leading_coins,
     detect_consolidation_breakout, detect_early_strong_trend,
 )
 from core.strategy import (
     is_15m_trend_up, is_1h_trend_up, is_4h_trend_up, is_1d_trend_up,
-    is_btc_trend_up, is_btc_trend_down, is_btc_12h_not_down,
+    is_btc_12h_not_down,
 )
+from core.tagging import build_symbol_tags
 from infra.util import get_time_ms
 from core.copy_trading import report_copy_trading_status, report_history_summary
 
@@ -186,11 +187,15 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
+    # 按标签数量降序排列，标签数相同则用原 score（低位优先）做次级排序
     sorted_keys = sorted(
         state.buy_list,
-        key=lambda k: state.buy_list[k]["signal"].score,
+        key=lambda k: (-state.buy_list[k].get("tag_count", 0), state.buy_list[k]["signal"].score),
     )
-    log.info("自动交易候选（按优先级）：%s", ", ".join(sorted_keys))
+    log.info(
+        "自动交易候选（按标签数量降序）：%s",
+        ", ".join(f"{k}({state.buy_list[k].get('tag_count', 0)})" for k in sorted_keys),
+    )
 
     acc = ex.get_accounts(ex.PRODUCT_TYPE)
     equity = float(acc["data"][0]["accountEquity"])
@@ -281,9 +286,11 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
         }
+        matched_tags = buy_info.get("tags", [])
         log.info(
-            "%s 自动交易开仓: size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
-            key, size, notional, planned_risk, signal.stop_price,
+            "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
+            key, len(matched_tags), ", ".join(matched_tags),
+            size, notional, planned_risk, signal.stop_price,
             signal.market_cap, signal.market_cap_source.get("id"),
         )
         result = order(
@@ -441,10 +448,17 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
     """Scan the market and build auto-trading candidates only."""
     cfg = get_config()
     auto_cfg = cfg.get("auto_trade", {})
+    cooldown_ms = int(float(cfg.get("rebuy_cooldown_hours", 2)) * 60 * 60 * 1000)
 
     ex = get_exchange()
+    prev_position_keys = set(state.position.keys())
     all_position = ex.get_all_position(ex.PRODUCT_TYPE)
     state.position = {x["symbol"]: x for x in all_position["data"]}
+    # 交易所侧触发的止损（ATR 预设止损）会让持仓消失，但不经过 close_position，
+    # 这里补记冷却，确保止损后也进入冷却期。
+    now_ms = int(get_time_ms())
+    for vanished in prev_position_keys - set(state.position.keys()):
+        state.cooldown.setdefault(vanished, now_ms)
     state.buy_list = {}
     all_sym: dict = {}
 
@@ -472,9 +486,21 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
     no_data_symbols: list[str] = []
     old_data_symbols: dict = {"15m": [], "1H": [], "4H": [], "1D": [], "1W": []}
 
+    leading = set(find_leading_coins(all_sym))
+    volume_anomaly: dict = {"15m": [], "1H": [], "4H": []}
+
+    # 清理已过期的冷却记录
+    state.cooldown = {
+        s: t for s, t in state.cooldown.items() if now_ms - t < cooldown_ms
+    }
+    cooldown_skipped: list[str] = []
+
     for key, sym in all_sym.items():
         all_keys.append(key)
         if key in state.position or key == "BTCUSDT":
+            continue
+        if key in state.cooldown:
+            cooldown_skipped.append(key)
             continue
         if _is_too_new(sym):
             new_symbols.append(key)
@@ -486,32 +512,81 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             continue
 
         valid_symbols.append(key)
-        signal = evaluate_auto_trade_signal(
+        # 按标签数量准入：先算出能否安全下单所需的 ATR 止损/仓位参数，
+        # 无法安全下单的币（数据不足/ATR或止损无效）跳过。
+        risk = compute_trade_risk(
             key,
             sym,
             get_symbol_market_cap(key, market_caps),
-            min_market_cap=float(auto_cfg.get("market_cap_min", 5_000_000)),
-            max_market_cap=float(auto_cfg.get("market_cap_max", 1_000_000_000)),
-            min_quote_volume=float(auto_cfg.get("min_quote_volume_1d", 500_000)),
             atr_min=float(auto_cfg.get("atr_min", 0.001)),
             atr_stop_multi=float(auto_cfg.get("atr_stop_multi", 1.2)),
         )
-        if signal:
-            state.buy_list[key] = {
-                "reason": build_auto_trade_reason(signal),
-                "bonus": [AUTO_TRADE_TAG],
-                "signal": signal,
-            }
-            log.info(
-                "%s 自动交易候选: market_cap=%.0f source=%s low60=%.2f%% vol_ratio=%.2f bw=%.4f",
-                key, signal.market_cap, signal.market_cap_source.get("id"),
-                signal.low_position_pct * 100, signal.volume_ratio, signal.bandwidth,
-            )
+        if risk is None:
+            continue
+
+        # 组装全部选币标签（负费率需要逐币 API，先不计，稍后对候选做补充）
+        tags = build_symbol_tags(
+            all_sym, key, sym, cfg,
+            market_cap_info=get_symbol_market_cap(key, market_caps),
+            fund_rate=0.0,
+            leading=leading,
+            anomaly_dict=volume_anomaly,
+        )
+        state.buy_list[key] = {
+            "signal": risk,
+            "tags": tags,
+        }
+
+    # ---- 对候选集补充需要候选集才能算的标签：小量大涨 / 仙人指路 ----
+    if state.buy_list:
+        low_vol = set(select_by_volume(all_sym, state))
+        fairy = set(find_fairy_guide(all_sym, state))
+        for k in state.buy_list:
+            if k in low_vol:
+                state.buy_list[k]["tags"].append("小量大涨")
+            if k in fairy:
+                state.buy_list[k]["tags"].append("仙人指路")
+
+        # ---- 负费率：逐币 API 太慢，只对标签最多的候选 shortlist 补充 ----
+        max_positions = cfg.get("max_long_positions", 3)
+        shortlist_n = max(3 * max_positions, 12)
+        shortlist = sorted(
+            state.buy_list,
+            key=lambda k: len(state.buy_list[k]["tags"]),
+            reverse=True,
+        )[:shortlist_n]
+        threshold = cfg.get("negative_funding_threshold", -0.05)
+        for k in shortlist:
+            try:
+                fund_rate = ex.get_history_fund_rate(k, ex.PRODUCT_TYPE)
+                total = sum(float(x["fundingRate"]) for x in fund_rate["data"])
+                if total < threshold:
+                    state.buy_list[k]["tags"].append(f"负费率({total * 100:.2f}%)")
+            except Exception as exc:
+                log.warning("获取 %s 资金费率异常: %s", k, exc)
+
+        # ---- 最终：写入 reason / bonus（标签）/ tag_count ----
+        for k, info in state.buy_list.items():
+            tag_list = info["tags"]
+            info["tag_count"] = len(tag_list)
+            info["bonus"] = tag_list
+            info["reason"] = f"按标签数量选币（命中 {len(tag_list)} 个标签）"
+
+        ranked = sorted(
+            state.buy_list,
+            key=lambda k: len(state.buy_list[k]["tags"]),
+            reverse=True,
+        )
+        log.info(
+            "自动交易候选（按标签数量降序，共%d）：%s",
+            len(ranked),
+            ", ".join(f"{k}({len(state.buy_list[k]['tags'])})" for k in ranked[:shortlist_n]),
+        )
 
     log.info(
-        "扫描完成，全部交易对:%d 可分析:%d 自动交易候选:%d 新币:%s 空数据:%s 数据旧:%s",
+        "扫描完成，全部交易对:%d 可分析:%d 自动交易候选:%d 冷却跳过:%s 新币:%s 空数据:%s 数据旧:%s",
         len(all_keys), len(valid_symbols), len(state.buy_list),
-        new_symbols, no_data_symbols, old_data_symbols,
+        cooldown_skipped, new_symbols, no_data_symbols, old_data_symbols,
     )
     return all_sym
 

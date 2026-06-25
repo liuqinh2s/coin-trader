@@ -36,29 +36,15 @@ CYCLES = ["1W", "1D", "4H", "1H", "15m"]
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
-from core.auto_strategy import (  # noqa: E402
-    AUTO_TRADE_TAG,
-    evaluate_auto_trade_conditions,
-    evaluate_auto_trade_signal,
-)
+from core.auto_strategy import AUTO_TRADE_TAG  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
-    detect_bottom_volume_surge,
-    detect_consolidation_breakout,
-    detect_early_strong_trend,
-    detect_volume_anomaly,
     find_fairy_guide,
     find_leading_coins,
     select_by_volume,
 )
-from core.strategy import (  # noqa: E402
-    is_15m_trend_up,
-    is_1d_boll_trend_up,
-    is_1d_trend_up,
-    is_1h_trend_up,
-    is_4h_trend_up,
-)
+from core.tagging import build_symbol_tags  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -403,87 +389,6 @@ def is_valid_symbol(sym: dict) -> bool:
     return len(sym["1D"]["data"]) >= 20
 
 
-def is_not_rubbish(sym: dict) -> bool:
-    try:
-        for i in range(-3, 0):
-            if float(sym["1D"]["data"][i][2]) > float(sym["1D"]["data"][i][3]) * 1.1:
-                return True
-    except (IndexError, KeyError, ValueError):
-        return False
-    return False
-
-
-def min_price_7d(sym: dict) -> float:
-    data = sym["1D"]["data"]
-    days = min(7, len(data))
-    return min(float(data[-i][3]) for i in range(1, days + 1))
-
-
-def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
-    try:
-        close = float(sym["1D"]["data"][-1][4])
-        boll = sym["1D"]["bolling"]
-        return (
-            close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
-            and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
-            and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
-        )
-    except (IndexError, KeyError, ValueError):
-        return False
-
-
-def check_short_anti_chase(sym: dict) -> bool:
-    """短期未追高：价格 <= 日K 的 MA7 * 1.2"""
-    try:
-        data = sym["1D"]["data"]
-        if len(data) < 7:
-            return False
-        close = float(data[-1][4])
-        ma7 = sum(float(x[4]) for x in data[-7:]) / 7
-        return ma7 > 0 and close <= ma7 * 1.2
-    except (IndexError, KeyError, ValueError):
-        return False
-
-
-def check_ma60_up(sym: dict) -> bool:
-    """MA60向上：日K 的 MA60 今日 > 昨日"""
-    try:
-        ma60 = sym["1D"]["ma60"]
-        today, yesterday = ma60[-1], ma60[-2]
-        # 排除 NaN（rolling 均线早期为 NaN）
-        if today != today or yesterday != yesterday:
-            return False
-        return today > yesterday
-    except (IndexError, KeyError, ValueError, TypeError):
-        return False
-
-
-def check_short_pullback(sym: dict) -> bool:
-    """短期回调：近 6 根 4H K线中，任一根相对其前 6 根的高点跌幅 > 10%。"""
-    try:
-        data = sym["4H"]["data"]
-        if len(data) < 12:
-            return False
-        for k in range(-6, 0):
-            prev6 = data[k - 6:k]
-            prev_high = max(float(b[2]) for b in prev6)
-            cur_low = float(data[k][3])
-            if prev_high > 0 and (prev_high - cur_low) / prev_high > 0.10:
-                return True
-        return False
-    except (IndexError, KeyError, ValueError):
-        return False
-
-
-def is_trend_confluence(sym: dict) -> bool:
-    return (
-        is_15m_trend_up(sym, "15m")
-        and is_1h_trend_up(sym, "1H")
-        and is_4h_trend_up(sym, "4H")
-        and is_1d_trend_up(sym)
-    )
-
-
 def default_selected(tags: list[str]) -> bool:
     base_tags = {tag.split("(")[0] for tag in tags}
     return "日K趋势向上" in base_tags
@@ -553,73 +458,23 @@ async def main() -> None:
         if key == "BTCUSDT" or not is_valid_symbol(sym):
             continue
         valid_count += 1
-        tags: list[str] = []
 
-        try:
-            if is_trend_confluence(sym):
-                tags.append("趋势共振")
-        except (IndexError, KeyError, ValueError):
-            pass
-
-        try:
-            if is_1d_boll_trend_up(sym):
-                tags.append("日K趋势向上")
-        except (IndexError, KeyError, ValueError):
-            pass
-
-        auto_trade_cfg = cfg.get("auto_trade", {})
         market_cap_info = get_symbol_market_cap(key, market_caps)
-        auto_conditions = evaluate_auto_trade_conditions(
-            sym,
-            market_cap_info,
-            min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
-            max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
-            min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
-        )
-        tags.extend([tag for tag, ok in auto_conditions.items() if ok])
-
-        auto_signal = evaluate_auto_trade_signal(
-            key,
-            sym,
-            market_cap_info,
-            min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
-            max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
-            min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
-            atr_min=float(auto_trade_cfg.get("atr_min", 0.001)),
-            atr_stop_multi=float(auto_trade_cfg.get("atr_stop_multi", 1.2)),
-        )
-        if auto_signal:
-            tags.append(AUTO_TRADE_TAG)
-
-        anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", anomaly_dict)
-        if anomaly_tf:
-            tags.append(f"成交量异动({anomaly_tf})")
-        if check_anti_chase(sym, cfg):
-            tags.append("未追高")
-        if check_short_anti_chase(sym):
-            tags.append("短期未追高")
-        if check_ma60_up(sym):
-            tags.append("MA60向上")
-        if check_short_pullback(sym):
-            tags.append("短期回调")
-
         total_fund_rate = fund_rates.get(key, 0.0)
-        if total_fund_rate < cfg.get("negative_funding_threshold", -0.05):
-            tags.append(f"负费率({total_fund_rate * 100:.2f}%)")
-        if is_not_rubbish(sym):
-            tags.append("波动充足")
-        if key in leading:
-            tags.append("龙头币")
-        if detect_bottom_volume_surge(sym):
-            tags.append("底部放量")
-        if detect_consolidation_breakout(sym, "1H"):
-            tags.append("盘整突破")
-        if detect_early_strong_trend(sym):
-            tags.append("强势启动")
+        # 与实时自动交易共用同一套标签组装逻辑（core/tagging.py），避免漂移
+        tags = build_symbol_tags(
+            all_sym, key, sym, cfg,
+            market_cap_info=market_cap_info,
+            fund_rate=total_fund_rate,
+            leading=leading,
+            anomaly_dict=anomaly_dict,
+        )
 
         if not tags:
             continue
 
+        # 市值仅在通过完整自动交易信号（含 AUTO_TRADE_TAG）时展示，行为同旧逻辑
+        has_auto = AUTO_TRADE_TAG in tags
         last_bar = sym["1D"]["data"][-1]
         close = float(last_bar[4])
         open_price = float(last_bar[1])
@@ -640,8 +495,8 @@ async def main() -> None:
             "change_pct": round(((close - open_price) / open_price * 100) if open_price else 0, 2),
             "fund_rate": round(total_fund_rate, 6),
             "atr": atr_val,
-            "market_cap": round(auto_signal.market_cap, 2) if auto_signal else None,
-            "market_cap_source": auto_signal.market_cap_source if auto_signal else None,
+            "market_cap": round(float(market_cap_info.get("market_cap") or 0), 2) if (has_auto and market_cap_info) else None,
+            "market_cap_source": market_cap_info if has_auto else None,
             "tags": tags,
         })
 

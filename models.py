@@ -73,6 +73,8 @@ class AccountState:
 
         # 风控
         self.price_track: dict[str, dict] = {}
+        # 止盈/止损后的冷却：{symbol: 平仓时间(ms)}，冷却期内不再买入该币
+        self.cooldown: dict[str, int] = {}
         self.is_shutdown: bool = False
         self.shutdown_position: int = 0
         self.is_first_scan_position: bool = True

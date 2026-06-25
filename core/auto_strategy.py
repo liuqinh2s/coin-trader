@@ -205,6 +205,65 @@ def evaluate_auto_trade_signal(
     )
 
 
+def compute_trade_risk(
+    symbol: str,
+    sym: dict,
+    market_cap_info: dict[str, Any] | None,
+    atr_min: float = 0.001,
+    atr_stop_multi: float = 1.2,
+) -> AutoTradeSignal | None:
+    """计算 ATR 止损与下单所需的风险参数，不做任何选币过滤。
+
+    用于"按标签数量准入"的开仓路径：标签数量决定是否开仓，本函数只负责
+    给出止损价/仓位测算所需的数据。数据不足或 ATR/止损无效时返回 None
+    （这种币无法安全下单，必须跳过）。
+    """
+    if not _has_enough_daily(sym):
+        return None
+
+    day = sym["1D"]
+    data = day["data"]
+    boll = day["bolling"]
+    atr_values = day["atr"]
+    mid = boll["Middle Band"]
+
+    close = float(data[-1][4])
+    bb_mid = float(mid[-1])
+    atr = float(atr_values[-1])
+    if not _finite(atr) or atr < atr_min or not _finite(bb_mid):
+        return None
+
+    stop_price = bb_mid - atr * atr_stop_multi
+    if stop_price <= 0 or close <= stop_price:
+        return None
+
+    market_cap = float((market_cap_info or {}).get("market_cap") or 0)
+    quote_volume = float(data[-1][6])
+    lows_60 = [float(x[3]) for x in data[-60:]]
+    low_60d = min(lows_60) if lows_60 else 0
+    low_position_pct = (close - low_60d) / low_60d if low_60d > 0 else 0
+    vol_ma20 = sum(float(x[6]) for x in data[-21:-1]) / 20 if len(data) >= 21 else 0
+    volume_ratio = quote_volume / vol_ma20 if vol_ma20 > 0 else 0
+    score = (low_position_pct, -volume_ratio, 0)
+
+    return AutoTradeSignal(
+        symbol=symbol,
+        close=close,
+        atr=atr,
+        bb_mid=bb_mid,
+        stop_price=stop_price,
+        market_cap=market_cap,
+        market_cap_source=market_cap_info or {},
+        quote_volume=quote_volume,
+        low_60d=low_60d,
+        low_position_pct=low_position_pct,
+        volume_ratio=volume_ratio,
+        bandwidth=0,
+        bandwidth_ratio=None,
+        score=score,
+    )
+
+
 def build_auto_trade_reason(signal: AutoTradeSignal) -> str:
     source = signal.market_cap_source
     return (
