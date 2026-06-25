@@ -285,15 +285,17 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
 
-        margin_plan = estimate_extra_isolated_margin(
-            signal.close, float(size), signal.stop_price, leverage, equity, auto_cfg,
-        )
-        if margin_plan.capped:
-            log.info(
-                "%s required extra margin for ATR stop protection is above cap, skip: %.2f USDT",
-                key, margin_plan.required_margin - margin_plan.initial_margin,
+        margin_plan = None
+        if leverage > 1:
+            margin_plan = estimate_extra_isolated_margin(
+                signal.close, float(size), signal.stop_price, leverage, equity, auto_cfg,
             )
-            continue
+            if margin_plan.capped:
+                log.info(
+                    "%s required extra margin for ATR stop protection is above cap, skip: %.2f USDT",
+                    key, margin_plan.required_margin - margin_plan.initial_margin,
+                )
+                continue
 
         reason = buy_info.get("reason") or build_auto_trade_reason(signal)
         risk_info = {
@@ -307,8 +309,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap": signal.market_cap,
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
-            "estimated_extra_margin_usdt": margin_plan.extra_margin,
-            "target_liquidation_price": margin_plan.target_liquidation_price,
+            "estimated_extra_margin_usdt": margin_plan.extra_margin if margin_plan else 0.0,
+            "target_liquidation_price": margin_plan.target_liquidation_price if margin_plan else 0.0,
         }
         matched_tags = buy_info.get("tags", [])
         log.info(

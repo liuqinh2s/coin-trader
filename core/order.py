@@ -224,7 +224,7 @@ def open_position(symbol: str, price: float, state: AccountState,
     filled_price = float(detail["data"]["priceAvg"])
     filled_size = float(detail["data"]["baseVolume"])
 
-    if risk_info:
+    if risk_info and leverage > 1:
         stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
         actual_risk = max(filled_price - stop_price, 0) * filled_size
         margin_protection = _add_margin_to_protect_stop(
@@ -239,6 +239,18 @@ def open_position(symbol: str, price: float, state: AccountState,
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
             "margin_protection": margin_protection,
+        })
+    elif risk_info:
+        stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
+        actual_risk = max(filled_price - stop_price, 0) * filled_size
+        record_position_risk(symbol, {
+            **risk_info,
+            "symbol": symbol,
+            "open_price": filled_price,
+            "base_volume": filled_size,
+            "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
+            "actual_risk_usdt": actual_risk,
+            "stop_price": stop_price,
         })
 
     # 写入内存持仓，避免再次从服务器拉取
