@@ -386,7 +386,7 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
 
         valid_symbols.append(key)
 
-        # ---- 策略：BTC大盘方向 + 多周期趋势共振 + 波动充足 + 未追高 ----
+        # ---- 策略：BTC大盘方向 + 多周期趋势共振 + 波动充足 + 长线未追高 ----
         trend_all_up = (
             is_15m_trend_up(sym, "15m")
             and is_1h_trend_up(sym, "1H")
@@ -415,7 +415,7 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
         # 四条件组合即可开仓，不再要求成交量异动
         if (trend_all_up and not_overextended and not_above_upper
                 and btc_ok and not _is_rubbish(sym)):
-            state.buy_list[key] = {"reason": "趋势共振 + 波动充足 + 未追高", "bonus": []}
+            state.buy_list[key] = {"reason": "趋势共振 + 波动充足 + 长线未追高", "bonus": []}
 
         # 成交量异动检测，有异动的币标记加分
         anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", volume_anomaly)

@@ -38,16 +38,12 @@ def min_price_7d(sym: dict) -> float:
 
 
 def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
-    """未追高：当日涨幅、近 7 日涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
+    """长线未追高：近 7 日涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
-        data = sym["1D"]["data"]
-        close = float(data[-1][4])
+        close = float(sym["1D"]["data"][-1][4])
         boll = sym["1D"]["bolling"]
-        open_price = float(data[-1][1])
-        daily_gain = (close - open_price) / open_price if open_price > 0 else 0
         return (
-            daily_gain <= cfg.get("max_daily_gain", 0.20)
-            and close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
+            close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
             and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
             and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
         )
@@ -56,12 +52,16 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
 
 
 def check_short_anti_chase(sym: dict) -> bool:
-    """短期未追高：价格 <= 日K 的 MA7 * 1.2"""
+    """短线未追高：当日涨幅 <= 20%，且价格 <= 日K 的 MA7 * 1.2"""
     try:
         data = sym["1D"]["data"]
         if len(data) < 7:
             return False
         close = float(data[-1][4])
+        open_price = float(data[-1][1])
+        daily_gain = (close - open_price) / open_price if open_price > 0 else 0
+        if daily_gain > 0.20:
+            return False
         ma7 = sum(float(x[4]) for x in data[-7:]) / 7
         return ma7 > 0 and close <= ma7 * 1.2
     except (IndexError, KeyError, ValueError):
@@ -177,9 +177,9 @@ def build_symbol_tags(
     if anomaly_tf:
         tags.append(f"成交量异动({anomaly_tf})")
     if check_anti_chase(sym, cfg):
-        tags.append("未追高")
+        tags.append("长线未追高")
     if check_short_anti_chase(sym):
-        tags.append("短期未追高")
+        tags.append("短线未追高")
     if check_ma60_up(sym):
         tags.append("MA60向上")
     if check_short_pullback(sym):
