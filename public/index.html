@@ -635,8 +635,8 @@
             <h1>🔍 合约代币扫描器</h1>
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
-                默认标签：未追高 + 小市值 + 波动充足 + 日K趋势向上<br>
-                可选标签：自动交易 · 小市值 · 放量 · 价格&gt;中轨 · 趋势向上 · 成交额合格 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破<br>
+                默认不选中标签，按标签数量降序展示前10个<br>
+                可选标签：自动交易 · 小市值 · 近期放量 · 价格&gt;中轨 · 趋势向上 · 成交额充足 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破<br>
                 日K趋势向上币会同步读取 Crypto Mint 消息面评分，并按评分从高到低排序
             </p>
         </header>
@@ -713,7 +713,7 @@
     <div id="toast" class="toast hidden"></div>
     <script>
         let currentData = null;
-        const DEFAULT_FILTER = ['未追高', '小市值', '波动充足', '日K趋势向上'];
+        const DEFAULT_FILTER = [];
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
@@ -736,10 +736,10 @@
             '强势启动': 'tag-strong-start',
             '自动交易': 'tag-auto-trade',
             '小市值': 'tag-small-cap',
-            '放量': 'tag-volume-ok',
+            '近期放量': 'tag-volume-ok',
             '价格>中轨': 'tag-midline',
             '趋势向上': 'tag-trend-up',
-            '成交额合格': 'tag-turnover-ok',
+            '成交额充足': 'tag-turnover-ok',
         };
 
         // 不支持点击筛选的标签（非筛币条件）
@@ -828,6 +828,11 @@
                 if (scoreA !== scoreB) return scoreB - scoreA;
                 return b.tags.length - a.tags.length;
             });
+
+            // 无标签筛选时只展示前10
+            if (activeTagFilter.length === 0) {
+                tokens = tokens.slice(0, 10);
+            }
 
             renderTagBar(data.tokens || []);
             renderTable(tokens);
@@ -961,7 +966,7 @@
         function clearFilter() {
             activeTagFilter = [...DEFAULT_FILTER];
             if (currentData) renderData(currentData);
-            showToast('已恢复默认标签');
+            showToast('已清除所有标签筛选');
         }
 
         function buildTags(tags) {

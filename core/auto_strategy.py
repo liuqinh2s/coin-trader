@@ -9,10 +9,10 @@ from typing import Any
 AUTO_TRADE_TAG = "自动交易"
 AUTO_TRADE_FILTER_TAGS = [
     "小市值",
-    "放量",
+    "近期放量",
     "价格>中轨",
     "趋势向上",
-    "成交额合格",
+    "成交额充足",
 ]
 
 
@@ -76,9 +76,17 @@ def evaluate_auto_trade_conditions(
     close = float(data[-1][4])
 
     quote_volume = float(data[-1][6])
-    result["成交额合格"] = quote_volume >= min_quote_volume
-    vol_ma20 = sum(float(x[6]) for x in data[-21:-1]) / 20
-    result["放量"] = vol_ma20 > 0 and quote_volume > vol_ma20
+    result["成交额充足"] = quote_volume >= min_quote_volume
+    # 近期放量：近三天中任何一天成交量 >= 其前15天均量的5倍
+    recent_volume_surge = False
+    for i in range(-3, 0):
+        if len(data) >= abs(i) + 15:
+            day_vol = float(data[i][6])
+            prev_15_avg = sum(float(x[6]) for x in data[i - 15:i]) / 15
+            if prev_15_avg > 0 and day_vol >= prev_15_avg * 5:
+                recent_volume_surge = True
+                break
+    result["近期放量"] = recent_volume_surge
 
     result["价格>中轨"] = _finite(mid[-1]) and close > float(mid[-1])
 
@@ -125,10 +133,20 @@ def evaluate_auto_trade_signal(
     quote_volume = float(data[-1][6])
     if quote_volume < min_quote_volume:
         return None
-    vol_ma20 = sum(float(x[6]) for x in data[-21:-1]) / 20
-    if vol_ma20 <= 0 or quote_volume <= vol_ma20:
+    # 近期放量：近三天中任何一天成交量 >= 其前15天均量的5倍
+    recent_volume_surge = False
+    volume_ratio = 0.0
+    for i in range(-3, 0):
+        if len(data) >= abs(i) + 15:
+            day_vol = float(data[i][6])
+            prev_15_avg = sum(float(x[6]) for x in data[i - 15:i]) / 15
+            if prev_15_avg > 0:
+                ratio = day_vol / prev_15_avg
+                if ratio >= 5:
+                    recent_volume_surge = True
+                    volume_ratio = max(volume_ratio, ratio)
+    if not recent_volume_surge:
         return None
-    volume_ratio = quote_volume / vol_ma20
 
     if close <= bb_mid:
         return None
@@ -175,7 +193,7 @@ def evaluate_auto_trade_signal(
 def build_auto_trade_reason(signal: AutoTradeSignal) -> str:
     source = signal.market_cap_source
     return (
-        "自动交易: 放量站上中轨 + 日/周趋势向上; "
+        "自动交易: 近期放量站上中轨 + 日/周趋势向上; "
         f"市值={signal.market_cap:,.0f}({source.get('id')}); "
         f"成交额={signal.quote_volume:,.0f}; "
         f"ATR={signal.atr:.6g}; 止损={signal.stop_price:.6g}"
