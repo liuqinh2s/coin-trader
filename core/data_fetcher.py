@@ -17,8 +17,9 @@ from analysis.ma import moving_average_np
 from analysis.macd import calculate_macd, calculate_ema
 from analysis.rsi import calculate_rsi
 from api.factory import get_exchange
+from core.copy_symbols import get_copy_trading_symbols
 from infra.config import get_config
-from infra.env import NEED_PROXY, PROXIES
+from infra.env import EXCHANGE, NEED_PROXY, PROXIES
 from infra.logger import log
 from infra.util import get_time_ms
 
@@ -135,30 +136,21 @@ async def get_all_data(
     if not key_list:
         symbols = ex.get_all_symbol(ex.PRODUCT_TYPE)
 
-        # 带单模式下，过滤掉不支持带单的交易对
-        if cfg.get("copy_trading_enabled", False):
+        # Bitget 只扫描带单可开交易对，避免选到无法跟单开仓的币。
+        if EXCHANGE == "bitget":
             try:
-                copy_resp = ex.copy_get_symbols(ex.PRODUCT_TYPE)
-                if copy_resp.get("code") == "00000":
-                    copy_data = copy_resp.get("data", [])
-                    # data 是对象列表，提取 symbol 字段
-                    if copy_data and isinstance(copy_data[0], dict):
-                        copy_symbols = {item["symbol"] for item in copy_data}
-                    else:
-                        # data 可能直接是字符串列表
-                        copy_symbols = set(copy_data)
-                    before = len(symbols["data"])
-                    symbols["data"] = [
-                        s for s in symbols["data"]
-                        if s["symbol"] in copy_symbols
-                    ]
-                    filtered = before - len(symbols["data"])
-                    log.info("带单过滤：移除 %d 个不支持带单的交易对，剩余 %d 个",
-                             filtered, len(symbols["data"]))
-                else:
-                    log.warning("获取带单交易对列表失败: %s", copy_resp.get("msg"))
+                copy_symbols = get_copy_trading_symbols(ex)
+                before = len(symbols["data"])
+                symbols["data"] = [
+                    s for s in symbols["data"]
+                    if s["symbol"] in copy_symbols
+                ]
+                filtered = before - len(symbols["data"])
+                log.info("带单过滤：移除 %d 个不支持带单的交易对，剩余 %d 个",
+                         filtered, len(symbols["data"]))
             except Exception as e:
-                log.warning("获取带单交易对列表异常: %s", e)
+                log.error("获取带单交易对列表异常，本轮不扫描任何交易对: %s", e)
+                symbols["data"] = []
 
         # 48小时内亏损的币不再开仓
         history = ex.get_history_position(ex.PRODUCT_TYPE, str(int(get_time_ms()) - 2 * MS_1D))

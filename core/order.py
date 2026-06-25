@@ -8,6 +8,7 @@ from time import sleep
 from typing import TYPE_CHECKING
 
 from api.factory import get_exchange
+from infra.env import EXCHANGE
 from infra.config import get_config
 from infra.logger import log, notify
 from infra.trade_log import log_open, log_close
@@ -51,6 +52,48 @@ def _format_usdt_amount(amount: float) -> str:
     return format(dec.normalize(), "f")
 
 
+def _exchange_leverage(cfg: dict) -> int:
+    if EXCHANGE == "bitget":
+        return 10
+    return int(cfg.get("leverage", 10))
+
+
+def _add_margin_for_effective_1x(
+    symbol: str,
+    filled_price: float,
+    filled_size: float,
+    leverage: int,
+) -> dict:
+    result = {
+        "target_effective_leverage": 1,
+        "exchange_leverage": leverage,
+        "extra_margin_usdt": 0.0,
+        "extra_margin_added": False,
+    }
+    if EXCHANGE != "bitget" or leverage <= 1:
+        return result
+
+    notional = filled_price * filled_size
+    initial_margin = notional / leverage
+    extra_margin = max(notional - initial_margin, 0.0)
+    result["extra_margin_usdt"] = extra_margin
+    if extra_margin <= 0:
+        return result
+
+    try:
+        amount = _format_usdt_amount(extra_margin)
+        resp = get_exchange().set_position_margin(
+            symbol, get_exchange().PRODUCT_TYPE, "USDT", amount, "long",
+        )
+        log.info("%s added margin for effective 1x: %s USDT %s", symbol, amount, resp)
+        result["extra_margin_added"] = True
+        result["extra_margin_response"] = resp
+    except Exception as exc:
+        log.warning("%s failed to add margin for effective 1x: %s", symbol, exc)
+        result["extra_margin_error"] = str(exc)
+    return result
+
+
 def _add_margin_to_protect_stop(
     symbol: str,
     filled_price: float,
@@ -60,7 +103,7 @@ def _add_margin_to_protect_stop(
 ) -> dict:
     cfg = get_config()
     auto_cfg = cfg.get("auto_trade", {})
-    leverage = int(cfg.get("leverage", 10))
+    leverage = _exchange_leverage(cfg)
     min_extra_margin = float(auto_cfg.get("min_extra_margin_usdt", 0.1))
     plan = estimate_extra_isolated_margin(
         filled_price, filled_size, stop_price, leverage, state.balance, auto_cfg,
@@ -200,7 +243,7 @@ def open_position(symbol: str, price: float, state: AccountState,
     """开多仓"""
     ex = get_exchange()
     cfg = get_config()
-    leverage = cfg.get("leverage", 10)
+    leverage = _exchange_leverage(cfg)
     leverage_info = ex.set_leverage(
         symbol, ex.PRODUCT_TYPE, "USDT", None,
         leverage, None, "long",
@@ -223,8 +266,11 @@ def open_position(symbol: str, price: float, state: AccountState,
 
     filled_price = float(detail["data"]["priceAvg"])
     filled_size = float(detail["data"]["baseVolume"])
+    effective_margin = _add_margin_for_effective_1x(
+        symbol, filled_price, filled_size, leverage,
+    )
 
-    if risk_info and leverage > 1:
+    if risk_info and leverage > 1 and EXCHANGE != "bitget":
         stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
         actual_risk = max(filled_price - stop_price, 0) * filled_size
         margin_protection = _add_margin_to_protect_stop(
@@ -238,6 +284,7 @@ def open_position(symbol: str, price: float, state: AccountState,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
+            "effective_margin": effective_margin,
             "margin_protection": margin_protection,
         })
     elif risk_info:
@@ -251,6 +298,7 @@ def open_position(symbol: str, price: float, state: AccountState,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
+            "effective_margin": effective_margin,
         })
 
     # 写入内存持仓，避免再次从服务器拉取

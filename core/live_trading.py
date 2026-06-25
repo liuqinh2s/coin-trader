@@ -18,6 +18,7 @@ from decimal import Decimal, ROUND_DOWN
 from time import sleep
 
 from api.factory import get_exchange
+from infra.env import EXCHANGE
 from infra.config import get_config
 from core.data_fetcher import get_all_data, compute_indicators
 from infra.logger import log, notify
@@ -219,7 +220,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
     max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
-    leverage = int(cfg.get("leverage", 10))
+    leverage = 10 if EXCHANGE == "bitget" else int(cfg.get("leverage", 10))
     current_risk = _current_total_risk(state, all_sym, auto_cfg)
     log.info(
         "当前总风险占用: %.4f / %.4f USDT (%.2f%% / %.2f%%)",
@@ -286,7 +287,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             continue
 
         margin_plan = None
-        if leverage > 1:
+        if leverage > 1 and EXCHANGE != "bitget":
             margin_plan = estimate_extra_isolated_margin(
                 signal.close, float(size), signal.stop_price, leverage, equity, auto_cfg,
             )
