@@ -124,7 +124,7 @@ def _format_decimal(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
-def _contract_min_size_and_places(ex, symbol: str) -> tuple[Decimal, int]:
+def _contract_min_size_and_places(ex, symbol: str) -> tuple[Decimal, int, Decimal]:
     contracts = ex.get_contracts(symbol, ex.PRODUCT_TYPE)
     data = contracts.get("data") or []
     info = data[0] if isinstance(data, list) and data else data
@@ -132,12 +132,23 @@ def _contract_min_size_and_places(ex, symbol: str) -> tuple[Decimal, int]:
         raise ValueError("empty contract info")
     min_size = Decimal(str(info.get("minTradeNum", "0")))
     volume_place = int(info.get("volumePlace", 8))
-    return min_size, volume_place
+    # 价格最小变动单位：pricePlace 为小数位数，priceEndStep 为步进倍数
+    price_place = int(info.get("pricePlace", 8))
+    price_end_step = Decimal(str(info.get("priceEndStep", "1")))
+    price_tick = price_end_step * Decimal("1").scaleb(-price_place)
+    return min_size, volume_place, price_tick
 
 
 def _round_size_down(size: Decimal, volume_place: int) -> Decimal:
     quantum = Decimal("1").scaleb(-volume_place)
     return size.quantize(quantum, rounding=ROUND_DOWN)
+
+
+def _round_price_to_tick(price: Decimal, tick: Decimal) -> Decimal:
+    """将价格向下取整到交易所价格最小变动单位的整数倍。"""
+    if tick <= 0:
+        return price
+    return (price / tick).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick
 
 
 def _estimate_position_risk(symbol: str, pos: dict, all_sym: dict,
@@ -239,7 +250,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         size = min(risk_size, max_notional_size)
 
         try:
-            min_size, volume_place = _contract_min_size_and_places(ex, key)
+            min_size, volume_place, price_tick = _contract_min_size_and_places(ex, key)
         except Exception as exc:
             log.warning("%s 获取交易所最小下单量失败，严格跳过: %s", key, exc)
             continue
@@ -293,11 +304,14 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             size, notional, planned_risk, signal.stop_price,
             signal.market_cap, signal.market_cap_source.get("id"),
         )
+        stop_price_rounded = _round_price_to_tick(
+            Decimal(str(signal.stop_price)), price_tick
+        )
         result = order(
             key, all_sym[key]["1D"]["data"], "BUY", state,
             reason=reason, bonus=buy_info.get("bonus", []),
             size=_format_decimal(size),
-            preset_stop_loss=f"{signal.stop_price:.12g}",
+            preset_stop_loss=_format_decimal(stop_price_rounded),
             risk_info=risk_info,
         )
         if result is not None:
