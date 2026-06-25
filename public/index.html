@@ -637,7 +637,7 @@
             <p class="filter-desc">
                 默认不选中标签，按标签数量降序展示前10个<br>
                 可选标签：自动交易 · 小市值 · 近期放量 · 价格&gt;中轨 · 趋势向上 · 成交额充足 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破<br>
-                日K趋势向上币会同步读取 Crypto Mint 消息面评分，并按评分从高到低排序
+                日K趋势向上币会同步读取 Crypto Mint 消息面评分（仅展示，不参与排序）
             </p>
         </header>
 
@@ -822,13 +822,8 @@
                 );
             }
 
-            // 有消息评分的排前面，其次按标签数量排序
-            tokens.sort((a, b) => {
-                const scoreA = getSentimentScore(a);
-                const scoreB = getSentimentScore(b);
-                if (scoreA !== scoreB) return scoreB - scoreA;
-                return b.tags.length - a.tags.length;
-            });
+            // 按标签数量降序排列
+            tokens.sort((a, b) => b.tags.length - a.tags.length);
 
             // 无标签筛选时只展示前10
             if (activeTagFilter.length === 0) {

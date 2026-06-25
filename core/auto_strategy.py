@@ -52,6 +52,22 @@ def _has_enough_daily(sym: dict) -> bool:
     )
 
 
+def _turnover_sufficient(data: list, min_quote_volume: float) -> bool:
+    """成交额充足：近3天任一天成交额 >= 单日门槛(2x)，或近15天日均成交额 >= 均值门槛。"""
+    if not data:
+        return False
+    single_day_threshold = min_quote_volume * 2
+    recent = data[-3:]
+    if any(float(bar[6]) >= single_day_threshold for bar in recent):
+        return True
+    window = data[-15:]
+    if window:
+        avg = sum(float(bar[6]) for bar in window) / len(window)
+        if avg >= min_quote_volume:
+            return True
+    return False
+
+
 def evaluate_auto_trade_conditions(
     sym: dict,
     market_cap_info: dict[str, Any] | None,
@@ -75,8 +91,7 @@ def evaluate_auto_trade_conditions(
 
     close = float(data[-1][4])
 
-    quote_volume = float(data[-1][6])
-    result["成交额充足"] = quote_volume >= min_quote_volume
+    result["成交额充足"] = _turnover_sufficient(data, min_quote_volume)
     # 近期放量：近三天中任何一天成交量 >= 其前15天均量的5倍
     recent_volume_surge = False
     for i in range(-3, 0):
@@ -131,7 +146,7 @@ def evaluate_auto_trade_signal(
         return None
 
     quote_volume = float(data[-1][6])
-    if quote_volume < min_quote_volume:
+    if not _turnover_sufficient(data, min_quote_volume):
         return None
     # 近期放量：近三天中任何一天成交量 >= 其前15天均量的5倍
     recent_volume_surge = False
