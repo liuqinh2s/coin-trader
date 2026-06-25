@@ -432,6 +432,19 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
         return False
 
 
+def check_short_anti_chase(sym: dict) -> bool:
+    """短期未追高：价格 <= 日K 的 MA7 * 1.2"""
+    try:
+        data = sym["1D"]["data"]
+        if len(data) < 7:
+            return False
+        close = float(data[-1][4])
+        ma7 = sum(float(x[4]) for x in data[-7:]) / 7
+        return ma7 > 0 and close <= ma7 * 1.2
+    except (IndexError, KeyError, ValueError):
+        return False
+
+
 def is_trend_confluence(sym: dict) -> bool:
     return (
         is_15m_trend_up(sym, "15m")
@@ -553,6 +566,8 @@ async def main() -> None:
             tags.append(f"成交量异动({anomaly_tf})")
         if check_anti_chase(sym, cfg):
             tags.append("未追高")
+        if check_short_anti_chase(sym):
+            tags.append("短期未追高")
 
         total_fund_rate = fund_rates.get(key, 0.0)
         if total_fund_rate < cfg.get("negative_funding_threshold", -0.05):
