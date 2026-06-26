@@ -238,7 +238,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     )
 
     for key in sorted_keys:
-        max_positions = cfg.get("max_long_positions", 3)
+        max_positions = cfg.get("max_long_positions", 5)
         if len(state.position) >= max_positions:
             log.info("已达最大持仓数 %d，停止开仓", max_positions)
             break
@@ -588,7 +588,7 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
                 state.buy_list[k]["tags"].append("仙人指路")
 
         # ---- 负费率：逐币 API 太慢，只对标签最多的候选 shortlist 补充 ----
-        max_positions = cfg.get("max_long_positions", 3)
+        max_positions = cfg.get("max_long_positions", 5)
         shortlist_n = max(3 * max_positions, 12)
         shortlist = sorted(
             state.buy_list,
