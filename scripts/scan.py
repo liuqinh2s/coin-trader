@@ -478,7 +478,6 @@ async def main() -> None:
             key,
             sym,
             market_cap_info,
-            min_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_min", 5_000_000)),
             max_market_cap=float(cfg.get("auto_trade", {}).get("market_cap_max", 1_000_000_000)),
             min_quote_volume=float(cfg.get("auto_trade", {}).get("min_quote_volume_1d", 500_000)),
             atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),

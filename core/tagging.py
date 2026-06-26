@@ -148,7 +148,6 @@ def build_symbol_tags(
     auto_conditions = evaluate_auto_trade_conditions(
         sym,
         market_cap_info,
-        min_market_cap=float(auto_trade_cfg.get("market_cap_min", 5_000_000)),
         max_market_cap=float(auto_trade_cfg.get("market_cap_max", 1_000_000_000)),
         min_quote_volume=float(auto_trade_cfg.get("min_quote_volume_1d", 500_000)),
     )

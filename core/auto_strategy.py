@@ -71,7 +71,6 @@ def _turnover_sufficient(data: list, min_quote_volume: float) -> bool:
 def evaluate_auto_trade_conditions(
     sym: dict,
     market_cap_info: dict[str, Any] | None,
-    min_market_cap: float = 5_000_000,
     max_market_cap: float = 1_000_000_000,
     min_quote_volume: float = 500_000,
 ) -> dict[str, bool]:
@@ -79,7 +78,7 @@ def evaluate_auto_trade_conditions(
     result = {tag: False for tag in AUTO_TRADE_FILTER_TAGS}
 
     market_cap = float((market_cap_info or {}).get("market_cap") or 0)
-    result["小市值"] = min_market_cap < market_cap < max_market_cap
+    result["小市值"] = 0 < market_cap < max_market_cap
 
     if not _has_enough_daily(sym):
         return result
@@ -119,7 +118,6 @@ def evaluate_auto_trade_signal(
     symbol: str,
     sym: dict,
     market_cap_info: dict[str, Any] | None,
-    min_market_cap: float = 5_000_000,
     max_market_cap: float = 1_000_000_000,
     min_quote_volume: float = 500_000,
     atr_min: float = 0.001,
@@ -130,7 +128,7 @@ def evaluate_auto_trade_signal(
         return None
 
     market_cap = float(market_cap_info.get("market_cap") or 0)
-    if not (min_market_cap < market_cap < max_market_cap):
+    if not (0 < market_cap < max_market_cap):
         return None
 
     day = sym["1D"]
