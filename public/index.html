@@ -823,6 +823,7 @@
                 ...t,
                 tags: (t.tags || []).filter(tag => !HIDDEN_TAGS.has(getTagKey(tag))),
             }));
+            const tagBarTokens = [...tokens].sort((a, b) => b.tags.length - a.tags.length);
 
             // 应用当前选中的标签筛选
             if (activeTagFilter.length > 0) {
@@ -841,7 +842,7 @@
                 tokens = tokens.slice(0, 10);
             }
 
-            renderTagBar(tokens);
+            renderTagBar(tagBarTokens);
             renderTable(tokens);
             renderCards(tokens);
 
