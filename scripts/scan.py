@@ -37,7 +37,6 @@ sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
 from core.auto_strategy import evaluate_auto_trade_signal  # noqa: E402
-from core.copy_symbols import parse_copy_symbols  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
@@ -317,23 +316,6 @@ async def fetch_all_symbols(session: aiohttp.ClientSession, proxy_url: str | Non
     return symbols
 
 
-async def fetch_copy_trading_symbols(
-    session: aiohttp.ClientSession,
-    proxy_url: str | None,
-) -> set[str]:
-    url = (
-        f"{BITGET_API}/api/v2/copy/mix-trader/config-query-symbols"
-        f"?productType={PRODUCT_TYPE}"
-    )
-    data = await fetch_json(session, url, proxy_url)
-    if not data or data.get("code") != "00000":
-        log.warning("带单交易对列表返回异常: %s", str(data)[:200] if data else "None")
-        return set()
-    symbols = parse_copy_symbols(data)
-    log.info("获取到 %d 个 Bitget 带单可开交易对", len(symbols))
-    return symbols
-
-
 async def fetch_klines(
     session: aiohttp.ClientSession,
     symbol: str,
@@ -444,14 +426,6 @@ async def main() -> None:
         symbols = await fetch_all_symbols(session, proxy_url)
         if not symbols:
             sys.exit(1)
-        copy_symbols = await fetch_copy_trading_symbols(session, proxy_url)
-        if not copy_symbols:
-            log.error("未获取到 Bitget 带单可开交易对，停止扫描")
-            sys.exit(1)
-        before = len(symbols)
-        symbols = [symbol for symbol in symbols if symbol in copy_symbols]
-        log.info("带单过滤：移除 %d 个不支持带单的交易对，剩余 %d 个",
-                 before - len(symbols), len(symbols))
         all_sym = await fetch_all_data(session, symbols, proxy_url, max_concurrent)
         log.info("获取历史资金费率...")
         fund_rates = await fetch_history_fund_rates(session, symbols, proxy_url)
