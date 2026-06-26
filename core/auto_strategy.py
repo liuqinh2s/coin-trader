@@ -11,7 +11,6 @@ AUTO_TRADE_FILTER_TAGS = [
     "小市值",
     "近期放量",
     "价格>中轨",
-    "趋势向上",
     "成交额充足",
 ]
 
@@ -103,13 +102,6 @@ def evaluate_auto_trade_conditions(
     result["近期放量"] = recent_volume_surge
 
     result["价格>中轨"] = _finite(mid[-1]) and close > float(mid[-1])
-
-    daily_up = _finite(mid[-1]) and _finite(mid[-2]) and _finite(mid[-3]) and mid[-1] > mid[-2] > mid[-3]
-    week = sym.get("1W", {})
-    week_mid = (week.get("bolling") or {}).get("Middle Band") or []
-    valid_week_mid = [x for x in week_mid if _finite(x)]
-    week_ok = len(valid_week_mid) < 2 or valid_week_mid[-1] >= valid_week_mid[-2]
-    result["趋势向上"] = daily_up and week_ok
 
     return result
 
