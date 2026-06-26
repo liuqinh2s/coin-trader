@@ -49,6 +49,7 @@ from core.copy_trading import report_copy_trading_status, report_history_summary
 # 时间常量（毫秒）
 MS_15M = 15 * 60 * 1000
 MS_1D = 24 * 60 * 60 * 1000
+AUTO_TRADE_VISIBLE_LIMIT = 10
 
 
 # =============================================================================
@@ -200,11 +201,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
-    # 按标签数量降序排列，标签数相同则用原 score（低位优先）做次级排序
+    # Auto-trading follows the frontend's default list: top 10 by tag count.
     sorted_keys = sorted(
         state.buy_list,
-        key=lambda k: (-state.buy_list[k].get("tag_count", 0), state.buy_list[k]["signal"].score),
-    )
+        key=lambda k: state.buy_list[k].get("tag_count", 0),
+        reverse=True,
+    )[:AUTO_TRADE_VISIBLE_LIMIT]
     log.info(
         "自动交易候选（按标签数量降序）：%s",
         ", ".join(f"{k}({state.buy_list[k].get('tag_count', 0)})" for k in sorted_keys),
