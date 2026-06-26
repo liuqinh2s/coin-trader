@@ -117,14 +117,14 @@ class BitgetClient(ExchangeAPI):
 
     def set_position_margin(self, symbol, product_type, margin_coin,
                             amount, hold_side="long") -> dict:
-        classic_symbol = symbol if "_" in symbol else f"{symbol}_UMCBL"
         data = {
-            "symbol": classic_symbol,
-            "marginCoin": margin_coin,
+            "symbol": symbol,
+            "productType": product_type,
+            "marginCoin": str(margin_coin).upper(),
             "amount": str(amount),
             "holdSide": hold_side,
         }
-        return self._post("/api/mix/v1/account/setMargin", data)
+        return self._post("/api/v2/mix/account/set-margin", data)
 
     # ---- 订单 ----
 
