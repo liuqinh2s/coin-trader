@@ -51,6 +51,9 @@ trailing_pullback_pct: 0.03 # 从最高点回撤3%即止盈
 # 7 日涨幅上限倍数
 max_7d_gain_mult: 2.7
 
+# 近半年最低价到当前价上限倍数
+max_180d_low_gain_mult: 4.0
+
 # 布林带宽度上限倍数
 max_boll_width_mult: 2.7
 

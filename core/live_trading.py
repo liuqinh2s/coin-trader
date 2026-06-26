@@ -123,6 +123,12 @@ def _min_price_7d(sym: dict) -> float:
     return min(float(sym["1D"]["data"][-i][3]) for i in range(1, days + 1))
 
 
+def _min_price_180d(sym: dict) -> float:
+    """近半年最低价"""
+    days = min(180, len(sym["1D"]["data"]))
+    return min(float(sym["1D"]["data"][-i][3]) for i in range(1, days + 1))
+
+
 def _format_decimal(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
@@ -370,6 +376,7 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
     volume_anomaly: dict = {"15m": [], "1H": [], "4H": []}
 
     max_7d = cfg.get("max_7d_gain_mult", 2.7)
+    max_180d = cfg.get("max_180d_low_gain_mult", 4.0)
     max_boll = cfg.get("max_boll_width_mult", 2.7)
     max_upper = cfg.get("max_close_above_upper_mult", 1.1)
 
@@ -402,6 +409,7 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
         close_price = float(sym["1D"]["data"][-1][4])
         not_overextended = (
             close_price < _min_price_7d(sym) * max_7d
+            and close_price <= _min_price_180d(sym) * max_180d
             and sym["1D"]["bolling"]["Upper Band"][-1]
             < sym["1D"]["bolling"]["Lower Band"][-1] * max_boll
         )
