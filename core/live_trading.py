@@ -408,7 +408,8 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
         # 防追高
         close_price = float(sym["1D"]["data"][-1][4])
         not_overextended = (
-            close_price < _min_price_7d(sym) * max_7d
+            len(sym["1D"]["data"]) >= 180
+            and close_price < _min_price_7d(sym) * max_7d
             and close_price <= _min_price_180d(sym) * max_180d
             and sym["1D"]["bolling"]["Upper Band"][-1]
             < sym["1D"]["bolling"]["Lower Band"][-1] * max_boll

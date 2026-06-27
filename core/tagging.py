@@ -44,7 +44,10 @@ def min_price_180d(sym: dict) -> float:
 def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
     """长线未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
-        close = float(sym["1D"]["data"][-1][4])
+        data = sym["1D"]["data"]
+        if len(data) < 180:
+            return False
+        close = float(data[-1][4])
         boll = sym["1D"]["bolling"]
         return (
             close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
