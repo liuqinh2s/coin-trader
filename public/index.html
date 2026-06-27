@@ -749,8 +749,6 @@
             '成交额充足': 'tag-turnover-ok',
         };
 
-        const HIDDEN_TAGS = new Set(['趋势向上', '未追高']);
-
         // 不支持点击筛选的标签（非筛币条件）
         const NON_FILTERABLE = new Set([]);
 
@@ -821,7 +819,7 @@
 
             let tokens = (data.tokens || []).map(t => ({
                 ...t,
-                tags: (t.tags || []).filter(tag => !HIDDEN_TAGS.has(getTagKey(tag))),
+                tags: t.tags || [],
             }));
             const tagBarTokens = [...tokens].sort((a, b) => b.tags.length - a.tags.length);
 
@@ -978,7 +976,7 @@
         }
 
         function buildTags(tags) {
-            return tags.filter(tag => !HIDDEN_TAGS.has(getTagKey(tag))).map(tag => {
+            return tags.map(tag => {
                 const cls = getTagClass(tag);
                 const key = getTagKey(tag);
                 const filterable = isFilterable(tag);

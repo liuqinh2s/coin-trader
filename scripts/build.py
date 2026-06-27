@@ -21,7 +21,7 @@ SITE_DIR = ROOT / "site"
 SITE_DATA_DIR = SITE_DIR / "data"
 SCANS_DIR = SITE_DATA_DIR / "scans"
 PUBLIC_DIR = ROOT / "public"
-LEGACY_UNVERIFIED_TAGS = {"未追高"}
+LEGACY_UNVERIFIED_TAGS = {"未追高", "趋势向上"}
 
 
 def normalize_tags(tags):
