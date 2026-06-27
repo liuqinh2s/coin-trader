@@ -21,6 +21,21 @@ SITE_DIR = ROOT / "site"
 SITE_DATA_DIR = SITE_DIR / "data"
 SCANS_DIR = SITE_DATA_DIR / "scans"
 PUBLIC_DIR = ROOT / "public"
+LEGACY_UNVERIFIED_TAGS = {"未追高"}
+
+
+def normalize_tags(tags):
+    """Drop legacy tags whose old definition no longer matches current rules."""
+    return [
+        tag for tag in (tags or [])
+        if tag not in LEGACY_UNVERIFIED_TAGS
+    ]
+
+
+def normalize_scan_data(data):
+    for token in data.get("tokens", []):
+        token["tags"] = normalize_tags(token.get("tags", []))
+    return data
 
 # 确保输出目录存在
 for d in (SITE_DIR, SITE_DATA_DIR, SCANS_DIR):
@@ -41,13 +56,13 @@ if not scan_files:
     (SITE_DATA_DIR / "history.json").write_text(json.dumps([]), encoding="utf-8")
 else:
     # latest.json = 最新一次扫描
-    latest_data = json.loads(scan_files[0].read_text(encoding="utf-8"))
+    latest_data = normalize_scan_data(json.loads(scan_files[0].read_text(encoding="utf-8")))
     (SITE_DATA_DIR / "latest.json").write_text(json.dumps(latest_data), encoding="utf-8")
 
     # history.json + 各次扫描文件
     history = []
     for idx, f in enumerate(scan_files):
-        data = json.loads(f.read_text(encoding="utf-8"))
+        data = normalize_scan_data(json.loads(f.read_text(encoding="utf-8")))
         history.append({
             "id": idx,
             "scan_time": data.get("scanTime"),
@@ -61,7 +76,7 @@ else:
     # search-index.json — 按代币聚合所有历史出现记录
     symbol_map = {}  # symbol -> [{scanTime, scanId, price, change_pct, tags, ...}]
     for idx, f in enumerate(scan_files):
-        data = json.loads(f.read_text(encoding="utf-8"))
+        data = normalize_scan_data(json.loads(f.read_text(encoding="utf-8")))
         scan_time = data.get("scanTime", "")
         for t in data.get("tokens", []):
             sym = t.get("symbol", "")
