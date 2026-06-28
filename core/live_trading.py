@@ -659,6 +659,23 @@ def _scan_position(state: AccountState) -> None:
     if is_first:
         state.is_first_scan_position = False
 
+    invalid_symbols: dict[str, list[str]] = {}
+    for key in list(all_sym.keys()):
+        sym = all_sym[key]
+        missing = [
+            tf for tf in ("1D", "15m", "1m")
+            if not sym.get(tf, {}).get("data")
+        ]
+        if missing:
+            invalid_symbols[key] = missing
+            del all_sym[key]
+
+    if invalid_symbols:
+        log.warning("持仓扫描跳过K线为空的币：%s", invalid_symbols)
+
+    if not all_sym:
+        return
+
     track_price(all_sym, is_first, state)
     compute_indicators(all_sym)
 
