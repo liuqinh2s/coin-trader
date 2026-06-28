@@ -323,15 +323,46 @@ async def fetch_klines(
     proxy_url: str | None,
     limit: int = 200,
 ) -> tuple[str, str, list]:
-    url = (
-        f"{BITGET_API}/api/v2/mix/market/candles"
-        f"?symbol={symbol}&productType={PRODUCT_TYPE}"
-        f"&granularity={granularity}&limit={limit}"
-    )
-    data = await fetch_json(session, url, proxy_url)
-    if not data or data.get("code") != "00000" or not data.get("data"):
-        return symbol, granularity, []
-    return symbol, granularity, data["data"]
+    rows: list = []
+    end_time: int | None = None
+    seen_timestamps: set[str] = set()
+    page_limit = min(limit, 100)
+
+    while len(rows) < limit:
+        url = (
+            f"{BITGET_API}/api/v2/mix/market/candles"
+            f"?symbol={symbol}&productType={PRODUCT_TYPE}"
+            f"&granularity={granularity}&limit={page_limit}"
+        )
+        if end_time is not None:
+            url += f"&endTime={end_time}"
+
+        data = await fetch_json(session, url, proxy_url)
+        page = data.get("data", []) if data and data.get("code") == "00000" else []
+        if not page:
+            break
+
+        new_rows = [
+            row for row in page
+            if row and str(row[0]) not in seen_timestamps
+        ]
+        if not new_rows:
+            break
+        seen_timestamps.update(str(row[0]) for row in new_rows)
+        rows = new_rows + rows
+
+        if len(page) < page_limit:
+            break
+        try:
+            end_time = int(min(row[0] for row in new_rows)) - 1
+        except (TypeError, ValueError):
+            break
+
+    try:
+        rows.sort(key=lambda row: int(row[0]))
+    except (TypeError, ValueError):
+        pass
+    return symbol, granularity, rows[-limit:]
 
 
 async def fetch_history_fund_rates(
