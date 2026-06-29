@@ -25,6 +25,7 @@ max_burst_count: 2
 auto_trade:
   risk_per_trade: 0.02
   position_fraction: 0.02
+  min_open_tags: 5
   max_total_risk: 0.10
   max_symbol_notional_pct: 0.20
   atr_length: 14

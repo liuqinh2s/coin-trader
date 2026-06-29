@@ -223,6 +223,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     position_fraction = float(auto_cfg.get("position_fraction", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
     max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
+    min_open_tags = int(auto_cfg.get("min_open_tags", 5))
     leverage = 10 if EXCHANGE == "bitget" else int(cfg.get("leverage", 10))
     current_risk = _current_total_risk(state, all_sym, auto_cfg)
     log.info(
@@ -239,6 +240,10 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             break
 
         buy_info = state.buy_list[key]
+        matched_tags = buy_info.get("tags", [])
+        if len(matched_tags) < min_open_tags:
+            log.info("%s 标签数 %d < %d，跳过开仓", key, len(matched_tags), min_open_tags)
+            continue
         signal = buy_info["signal"]
         if current_risk >= equity * max_total_risk:
             log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
@@ -307,7 +312,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
         }
-        matched_tags = buy_info.get("tags", [])
         log.info(
             "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
             key, len(matched_tags), ", ".join(matched_tags),
