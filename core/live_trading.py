@@ -24,7 +24,6 @@ from core.data_fetcher import get_all_data, compute_indicators
 from infra.logger import log, notify
 from models import AccountState
 from core.order import order
-from core.margin import estimate_extra_isolated_margin
 from core.position import cut_profit, track_price
 from core.auto_strategy import (
     AUTO_TRADE_TAG,
@@ -170,13 +169,9 @@ def _estimate_position_risk(symbol: str, pos: dict, all_sym: dict,
         log.warning("%s 无法估算已有持仓风险：缺少K线，按0计入", symbol)
         return 0.0
     try:
-        day = sym["1D"]
-        bb_mid = float(day["bolling"]["Middle Band"][-1])
-        atr = float(day["atr"][-1])
-        stop_price = bb_mid - atr * cfg.get("atr_stop_multi", 1.2)
         open_price = float(pos.get("openPriceAvg", 0))
         size = float(pos.get("available", pos.get("total", 0)))
-        return max(open_price - stop_price, 0) * size
+        return open_price * size
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         log.warning("%s 估算已有持仓风险失败: %s", symbol, exc)
         return 0.0
@@ -225,6 +220,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         return
 
     risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
+    position_fraction = float(auto_cfg.get("position_fraction", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
     max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
     leverage = 10 if EXCHANGE == "bitget" else int(cfg.get("leverage", 10))
@@ -248,18 +244,22 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
             break
 
-        stop_distance = signal.close - signal.stop_price
+        stop_distance = signal.close
         if stop_distance <= 0:
             log.info("%s 止损距离异常，跳过", key)
             continue
 
-        risk_budget = min(equity * risk_per_trade, equity * max_total_risk - current_risk)
+        risk_budget = min(
+            equity * position_fraction,
+            equity * max_symbol_notional_pct,
+            equity * max_total_risk - current_risk,
+        )
         risk_size = Decimal(str(risk_budget / stop_distance))
         max_notional_size = Decimal(str((equity * max_symbol_notional_pct) / signal.close))
         size = min(risk_size, max_notional_size)
 
         try:
-            min_size, volume_place, price_tick = _contract_min_size_and_places(ex, key)
+            min_size, volume_place, _price_tick = _contract_min_size_and_places(ex, key)
         except Exception as exc:
             log.warning("%s 获取交易所最小下单量失败，严格跳过: %s", key, exc)
             continue
@@ -293,23 +293,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
 
-        margin_plan = None
-        if leverage > 1 and EXCHANGE != "bitget":
-            margin_plan = estimate_extra_isolated_margin(
-                signal.close, float(size), signal.stop_price, leverage, equity, auto_cfg,
-            )
-            if margin_plan.capped:
-                log.info(
-                    "%s required extra margin for ATR stop protection is above cap, skip: %.2f USDT",
-                    key, margin_plan.required_margin - margin_plan.initial_margin,
-                )
-                continue
-
         reason = buy_info.get("reason") or build_auto_trade_reason(signal)
         risk_info = {
             "strategy": AUTO_TRADE_TAG,
             "planned_risk_usdt": planned_risk,
             "risk_per_trade": risk_per_trade,
+            "position_fraction": position_fraction,
             "total_risk_before_usdt": current_risk,
             "stop_price": signal.stop_price,
             "atr": signal.atr,
@@ -317,8 +306,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap": signal.market_cap,
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
-            "estimated_extra_margin_usdt": margin_plan.extra_margin if margin_plan else 0.0,
-            "target_liquidation_price": margin_plan.target_liquidation_price if margin_plan else 0.0,
         }
         matched_tags = buy_info.get("tags", [])
         log.info(
@@ -327,14 +314,11 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             size, notional, planned_risk, signal.stop_price,
             signal.market_cap, signal.market_cap_source.get("id"),
         )
-        stop_price_rounded = _round_price_to_tick(
-            Decimal(str(signal.stop_price)), price_tick
-        )
         result = order(
             key, all_sym[key]["1D"]["data"], "BUY", state,
             reason=reason, bonus=buy_info.get("bonus", []),
             size=_format_decimal(size),
-            preset_stop_loss=_format_decimal(stop_price_rounded),
+            preset_stop_loss="",
             risk_info=risk_info,
         )
         if result is not None:

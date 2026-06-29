@@ -24,6 +24,7 @@ max_burst_count: 2
 # 自动交易策略（只做多，日K/周K布林趋势）
 auto_trade:
   risk_per_trade: 0.02
+  position_fraction: 0.02
   max_total_risk: 0.10
   max_symbol_notional_pct: 0.20
   atr_length: 14
@@ -43,6 +44,9 @@ rebuy_cooldown_hours: 2
 # 回撤止盈：浮盈达到启动门槛后开始跟踪，从最高点回撤固定比例即止盈
 trailing_activation_pct: 0.06 # 浮盈达到6%才启动跟踪
 trailing_pullback_pct: 0.03 # 从最高点回撤3%即止盈
+unprofitable_exit_days: 2
+weak_gain_exit_days: 3
+weak_gain_threshold_pct: 0.06
 
 # =============================================================================
 #  防追高参数
