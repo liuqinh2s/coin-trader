@@ -44,13 +44,10 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
     """未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
         data = sym["1D"]["data"]
-        if len(data) < 180:
-            return False
         close = float(data[-1][4])
         boll = sym["1D"]["bolling"]
         return (
             close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
-            and close <= min_price_180d(sym) * cfg.get("max_180d_low_gain_mult", 4.0)
             and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
             and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
         )
@@ -72,11 +69,17 @@ def check_ma60_up(sym: dict) -> bool:
 
 
 def is_not_rubbish(sym: dict) -> bool:
-    """波动充足：近 3 日内任一日振幅 > 10%。"""
+    """波动充足：近 3 日内任一日振幅 > 10% 且 近 3 日内任一日成交额 > 100万u"""
     try:
+        condition1 = False
         for i in range(-3, 0):
-            if float(sym["1D"]["data"][i][2]) > float(sym["1D"]["data"][i][3]) * 1.1:
-                return True
+            if float(sym["1D"]["data"][i][2]) >= float(sym["1D"]["data"][i][3]) * 1.1:
+                condition1 = True
+        condition2 = False
+        for i in range(-3, 0):
+            if float(sym["1D"]["data"][i][6]) >= 100_0000:
+                condition2 = True
+        return condition1 and condition2
     except (IndexError, KeyError, ValueError):
         return False
     return False
