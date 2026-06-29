@@ -253,11 +253,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 止损距离异常，跳过", key)
             continue
 
-        target_notional = min(
+        target_margin = min(
             equity * position_fraction,
-            equity * max_symbol_notional_pct,
+            (equity * max_symbol_notional_pct) / leverage if leverage else equity * max_symbol_notional_pct,
         )
-        if current_risk + target_notional > equity * max_total_risk:
+        target_notional = target_margin * leverage if leverage else target_margin
+        if current_risk + target_margin > equity * max_total_risk:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
         size = Decimal(str(target_notional / signal.close))
@@ -274,8 +275,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             continue
 
         notional = float(size) * signal.close
-        planned_risk = notional
-        margin_need = notional / leverage if leverage else notional
+        margin_need = min(target_margin, notional / leverage if leverage else notional)
+        planned_risk = margin_need
         try:
             res = ex.open_count(
                 key, ex.PRODUCT_TYPE, "USDT",
@@ -285,7 +286,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             if exchange_size < size:
                 size = _round_size_down(exchange_size, volume_place)
                 notional = float(size) * signal.close
-                planned_risk = notional
+                planned_risk = min(target_margin, notional / leverage if leverage else notional)
                 if size < min_size:
                     log.info("%s 交易所可开数量 %s 小于最小下单量 %s，跳过", key, size, min_size)
                     continue
