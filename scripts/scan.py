@@ -32,11 +32,13 @@ CRYPTO_MINT_BASE = "https://liuqinh2s.github.io/crypto-mint/"
 CRYPTO_MINT_WORKFLOW_URL = "https://api.github.com/repos/liuqinh2s/crypto-mint/actions/workflows/analyze-token.yml/dispatches"
 PRODUCT_TYPE = "USDT-FUTURES"
 CYCLES = ["1W", "1D", "4H", "1H", "15m"]
+MS_15M = 15 * 60 * 1000
+MS_1D = 24 * 60 * 60 * 1000
 
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
-from core.auto_strategy import evaluate_auto_trade_signal  # noqa: E402
+from core.auto_strategy import compute_trade_risk, evaluate_auto_trade_signal  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
@@ -352,8 +354,6 @@ async def fetch_klines(
         seen_timestamps.update(str(row[0]) for row in new_rows)
         rows = new_rows + rows
 
-        if len(page) < page_limit:
-            break
         try:
             end_time = int(min(row[0] for row in new_rows)) - 1
         except (TypeError, ValueError):
@@ -412,13 +412,46 @@ async def fetch_all_data(
     return all_sym
 
 
-def is_valid_symbol(sym: dict) -> bool:
+def is_banned_symbol(symbol: str, cfg: dict[str, Any]) -> bool:
+    return symbol in set(cfg.get("ban_stock_list", []) + cfg.get("ban_stable_list", []))
+
+
+def is_too_new(sym: dict) -> bool:
+    try:
+        for tf in ("4H", "1H", "15m"):
+            if tf not in sym or len(sym[tf].get("data") or []) < 20:
+                return True
+        return False
+    except (KeyError, TypeError):
+        return True
+
+
+def has_no_data(sym: dict) -> bool:
+    try:
+        return any(len(sym[tf]["data"]) <= 0 for tf in ("1D", "4H", "1H", "15m"))
+    except (KeyError, TypeError):
+        return True
+
+
+def is_data_fresh(sym: dict, key: str, old_data_symbols: dict) -> bool:
+    try:
+        now = int(time.time() * 1000)
+        freshness = {"15m": MS_15M, "1H": 60 * 60 * 1000, "4H": 4 * 60 * 60 * 1000, "1D": MS_1D}
+        for tf, max_age in freshness.items():
+            if now - int(sym[tf]["data"][-1][0]) > max_age:
+                old_data_symbols[tf].append(key)
+                return False
+        return True
+    except (KeyError, IndexError, ValueError, TypeError):
+        old_data_symbols.setdefault("unknown", []).append(key)
+        return False
+
+
+def has_required_indicators(sym: dict) -> bool:
     for tf in ("1D", "4H", "1H", "15m"):
-        if tf not in sym or not sym[tf].get("data") or len(sym[tf]["data"]) < 26:
+        if tf not in sym or "bolling" not in sym[tf] or "macd" not in sym[tf]:
             return False
-        if "bolling" not in sym[tf] or "macd" not in sym[tf]:
-            return False
-    return len(sym["1D"]["data"]) >= 20
+    return True
 
 
 def should_fetch_sentiment(sym: dict) -> bool:
@@ -487,25 +520,49 @@ async def main() -> None:
     result_tokens = []
     valid_count = 0
     anomaly_dict = {"15m": [], "1H": [], "4H": []}
+    old_data_symbols: dict = {"15m": [], "1H": [], "4H": [], "1D": []}
+    new_symbols: list[str] = []
+    no_data_symbols: list[str] = []
+    banned_symbols: list[str] = []
 
     for key, sym in all_sym.items():
-        if key == "BTCUSDT" or not is_valid_symbol(sym):
+        if is_banned_symbol(key, cfg):
+            banned_symbols.append(key)
             continue
-        valid_count += 1
+        if key == "BTCUSDT":
+            continue
+        if is_too_new(sym):
+            new_symbols.append(key)
+            continue
+        if has_no_data(sym):
+            no_data_symbols.append(key)
+            continue
+        if not is_data_fresh(sym, key, old_data_symbols):
+            continue
+        if not has_required_indicators(sym):
+            continue
 
         market_cap_info = get_symbol_market_cap(key, market_caps)
+        risk = compute_trade_risk(
+            key,
+            sym,
+            market_cap_info,
+            atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),
+            atr_stop_multi=float(cfg.get("auto_trade", {}).get("atr_stop_multi", 1.2)),
+        )
+        if risk is None:
+            continue
+
+        valid_count += 1
         total_fund_rate = fund_rates.get(key, 0.0)
         # 与实时自动交易共用同一套标签组装逻辑（core/tagging.py），避免漂移
         tags = build_symbol_tags(
             all_sym, key, sym, cfg,
             market_cap_info=market_cap_info,
-            fund_rate=total_fund_rate,
+            fund_rate=0.0,
             leading=leading,
             anomaly_dict=anomaly_dict,
         )
-
-        if not tags:
-            continue
 
         fetch_sentiment = should_fetch_sentiment(sym)
         # 市值仅在通过完整自动交易信号时展示，行为同旧逻辑但不再依赖展示标签。
@@ -545,11 +602,30 @@ async def main() -> None:
         })
 
     candidate_state = SimpleNamespace(buy_list={token["symbol"]: {} for token in result_tokens})
-    low_vol = set(select_by_volume(all_sym, candidate_state))
+    select_by_volume(all_sym, candidate_state)
     fairy = set(find_fairy_guide(all_sym, candidate_state))
     for token in result_tokens:
         if token["symbol"] in fairy:
             token["tags"].append("仙人指路")
+
+    max_positions = cfg.get("max_long_positions", 5)
+    shortlist_n = max(3 * max_positions, 12)
+    threshold = cfg.get("negative_funding_threshold", -0.05)
+    shortlist = sorted(
+        result_tokens,
+        key=lambda token: len(token["tags"]),
+        reverse=True,
+    )[:shortlist_n]
+    for token in shortlist:
+        total_fund_rate = fund_rates.get(token["symbol"], 0.0)
+        if total_fund_rate < threshold:
+            token["tags"].append(f"负费率({total_fund_rate * 100:.2f}%)")
+
+    result_tokens = [token for token in result_tokens if token["tags"]]
+    log.info(
+        "Pages 扫描过滤: ban=%d 新币=%d 空数据=%d 数据旧=%s",
+        len(banned_symbols), len(new_symbols), len(no_data_symbols), old_data_symbols,
+    )
 
     daily_up_symbols = [
         token["symbol"] for token in result_tokens
