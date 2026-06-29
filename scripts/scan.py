@@ -38,7 +38,7 @@ MS_1D = 24 * 60 * 60 * 1000
 sys.path.insert(0, str(ROOT))
 
 from core.data_fetcher import compute_indicators  # noqa: E402
-from core.auto_strategy import compute_trade_risk, evaluate_auto_trade_signal  # noqa: E402
+from core.auto_strategy import evaluate_auto_trade_signal  # noqa: E402
 from core.market_cap import get_market_cap_map, get_symbol_market_cap  # noqa: E402
 from infra.config import get_config  # noqa: E402
 from core.scanner import (  # noqa: E402
@@ -543,16 +543,6 @@ async def main() -> None:
             continue
 
         market_cap_info = get_symbol_market_cap(key, market_caps)
-        risk = compute_trade_risk(
-            key,
-            sym,
-            market_cap_info,
-            atr_min=float(cfg.get("auto_trade", {}).get("atr_min", 0.001)),
-            atr_stop_multi=float(cfg.get("auto_trade", {}).get("atr_stop_multi", 1.2)),
-        )
-        if risk is None:
-            continue
-
         valid_count += 1
         total_fund_rate = fund_rates.get(key, 0.0)
         # 与实时自动交易共用同一套标签组装逻辑（core/tagging.py），避免漂移

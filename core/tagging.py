@@ -11,7 +11,6 @@ from core.auto_strategy import (
     evaluate_auto_trade_conditions,
 )
 from core.scanner import (
-    detect_bottom_volume_surge,
     detect_consolidation_breakout,
     detect_early_strong_trend,
     detect_volume_anomaly,
@@ -55,19 +54,6 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
             and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
         )
     except (IndexError, KeyError, ValueError):
-        return False
-
-
-def check_ma60_up(sym: dict) -> bool:
-    """MA60向上：日K 的 MA60 今日 > 昨日"""
-    try:
-        ma60 = sym["1D"]["ma60"]
-        today, yesterday = ma60[-1], ma60[-2]
-        # 排除 NaN（rolling 均线早期为 NaN）
-        if today != today or yesterday != yesterday:
-            return False
-        return today > yesterday
-    except (IndexError, KeyError, ValueError, TypeError):
         return False
 
 
@@ -137,19 +123,12 @@ def build_symbol_tags(
         tags.append(f"成交量异动({anomaly_tf})")
     if check_anti_chase(sym, cfg):
         tags.append("未追高")
-    if check_ma60_up(sym):
-        tags.append("MA60向上")
-
     if fund_rate < cfg.get("negative_funding_threshold", -0.05):
         tags.append(f"负费率({fund_rate * 100:.2f}%)")
     if is_not_rubbish(sym):
         tags.append("波动充足")
     if key in leading:
         tags.append("龙头币")
-    if detect_bottom_volume_surge(sym):
-        tags.append("底部放量")
-    if detect_consolidation_breakout(sym, "1H"):
-        tags.append("盘整突破")
     if detect_early_strong_trend(sym):
         tags.append("强势启动")
 
