@@ -9,9 +9,6 @@ from typing import Any
 AUTO_TRADE_TAG = "自动交易"
 AUTO_TRADE_FILTER_TAGS = [
     "小市值",
-    "近期放量",
-    "价格>中轨",
-    "成交额充足",
 ]
 
 
@@ -88,20 +85,6 @@ def evaluate_auto_trade_conditions(
     mid = boll["Middle Band"]
 
     close = float(data[-1][4])
-
-    result["成交额充足"] = _turnover_sufficient(data, min_quote_volume)
-    # 近期放量：近三天中任何一天成交量 >= 其前15天均量的5倍
-    recent_volume_surge = False
-    for i in range(-3, 0):
-        if len(data) >= abs(i) + 15:
-            day_vol = float(data[i][6])
-            prev_15_avg = sum(float(x[6]) for x in data[i - 15:i]) / 15
-            if prev_15_avg > 0 and day_vol >= prev_15_avg * 5:
-                recent_volume_surge = True
-                break
-    result["近期放量"] = recent_volume_surge
-
-    result["价格>中轨"] = _finite(mid[-1]) and close > float(mid[-1])
 
     return result
 

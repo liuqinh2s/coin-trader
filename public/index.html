@@ -313,18 +313,8 @@
             color: #fff;
         }
 
-        .tag-daily-up {
-            background: #2e7d32;
-            color: #fff;
-        }
-
         .tag-safe {
             background: #00c853;
-            color: #fff;
-        }
-
-        .tag-short-safe {
-            background: #1b9e6e;
             color: #fff;
         }
 
@@ -353,11 +343,6 @@
             color: #fff;
         }
 
-        .tag-lowvol {
-            background: #78909c;
-            color: #fff;
-        }
-
         .tag-bottom-volume {
             background: #c6ff00;
             color: #0a0e17;
@@ -375,26 +360,6 @@
 
         .tag-small-cap {
             background: #00897b;
-            color: #fff;
-        }
-
-        .tag-volume-ok {
-            background: #fb8c00;
-            color: #0a0e17;
-        }
-
-        .tag-midline {
-            background: #039be5;
-            color: #fff;
-        }
-
-        .tag-ma60-up {
-            background: #558b2f;
-            color: #fff;
-        }
-
-        .tag-turnover-ok {
-            background: #546e7a;
             color: #fff;
         }
 
@@ -641,8 +606,8 @@
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
                 默认不选中标签，按标签数量降序展示前10个<br>
-                可选标签：小市值 · 近期放量 · 价格&gt;中轨 · 成交额充足 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 小量大涨 · 底部放量 · 盘整突破 · 短线未追高 · MA60向上 · 短期回调 · 长线未追高<br>
-                日K趋势向上币会同步读取 Crypto Mint 消息面评分（仅展示，不参与排序）
+                可选标签：小市值 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 底部放量 · 盘整突破 · MA60向上 · 未追高<br>
+                符合日K上行条件的币会同步读取 Crypto Mint 消息面评分（仅展示，不参与排序）
             </p>
         </header>
 
@@ -729,24 +694,16 @@
         // 标签样式映射
         const TAG_STYLES = {
             '趋势共振': 'tag-trend',
-            '日K趋势向上': 'tag-daily-up',
             '成交量异动': 'tag-volume',
-            '短线未追高': 'tag-short-safe',
-            '短期回调': 'tag-short-pullback',
-            '长线未追高': 'tag-safe',
+            '未追高': 'tag-safe',
             '负费率': 'tag-fundrate',
             '龙头币': 'tag-leading',
             '仙人指路': 'tag-fairy',
             '波动充足': 'tag-volatile',
-            '小量大涨': 'tag-lowvol',
             '底部放量': 'tag-bottom-volume',
             '盘整突破': 'tag-breakout',
             '强势启动': 'tag-strong-start',
             '小市值': 'tag-small-cap',
-            '近期放量': 'tag-volume-ok',
-            '价格>中轨': 'tag-midline',
-            'MA60向上': 'tag-ma60-up',
-            '成交额充足': 'tag-turnover-ok',
         };
 
         // 不支持点击筛选的标签（非筛币条件）
@@ -859,7 +816,7 @@
         async function hydrateCryptoMintScores(data, showUpdateToast = true) {
             const tokens = data.tokens || [];
             const pending = tokens.filter(t =>
-                (t.tags || []).some(tag => getTagKey(tag) === '日K趋势向上') &&
+                t.fetch_sentiment &&
                 getSentimentScore(t) < 0
             );
             if (!pending.length) return 0;
@@ -905,7 +862,7 @@
 
         function hasPendingCryptoMintScores(data) {
             return (data.tokens || []).some(t =>
-                (t.tags || []).some(tag => getTagKey(tag) === '日K趋势向上') &&
+                t.fetch_sentiment &&
                 getSentimentScore(t) < 0
             );
         }

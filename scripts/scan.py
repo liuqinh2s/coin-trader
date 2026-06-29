@@ -44,6 +44,7 @@ from core.scanner import (  # noqa: E402
     find_leading_coins,
     select_by_volume,
 )
+from core.strategy import is_1d_trend_up  # noqa: E402
 from core.tagging import build_symbol_tags  # noqa: E402
 
 logging.basicConfig(
@@ -420,9 +421,11 @@ def is_valid_symbol(sym: dict) -> bool:
     return len(sym["1D"]["data"]) >= 20
 
 
-def default_selected(tags: list[str]) -> bool:
-    base_tags = {tag.split("(")[0] for tag in tags}
-    return "日K趋势向上" in base_tags
+def should_fetch_sentiment(sym: dict) -> bool:
+    try:
+        return is_1d_trend_up(sym)
+    except (IndexError, KeyError, ValueError):
+        return False
 
 
 def cleanup_old_scans(data_dir: Path, retention_days: int) -> int:
@@ -504,6 +507,7 @@ async def main() -> None:
         if not tags:
             continue
 
+        fetch_sentiment = should_fetch_sentiment(sym)
         # 市值仅在通过完整自动交易信号时展示，行为同旧逻辑但不再依赖展示标签。
         has_auto = evaluate_auto_trade_signal(
             key,
@@ -536,6 +540,7 @@ async def main() -> None:
             "atr": atr_val,
             "market_cap": round(float(market_cap_info.get("market_cap") or 0), 2) if (has_auto and market_cap_info) else None,
             "market_cap_source": market_cap_info if has_auto else None,
+            "fetch_sentiment": fetch_sentiment,
             "tags": tags,
         })
 
@@ -543,16 +548,14 @@ async def main() -> None:
     low_vol = set(select_by_volume(all_sym, candidate_state))
     fairy = set(find_fairy_guide(all_sym, candidate_state))
     for token in result_tokens:
-        if token["symbol"] in low_vol:
-            token["tags"].append("小量大涨")
         if token["symbol"] in fairy:
             token["tags"].append("仙人指路")
 
     daily_up_symbols = [
         token["symbol"] for token in result_tokens
-        if default_selected(token["tags"])
+        if token.get("fetch_sentiment")
     ]
-    log.info("获取消息面评分: %d 个日K趋势向上代币", len(daily_up_symbols))
+    log.info("获取消息面评分: %d 个符合日K上行条件的代币", len(daily_up_symbols))
     sentiment_dispatched = 0
     async with aiohttp.ClientSession(headers=headers) as session:
         if should_auto_dispatch_crypto_mint(cfg):
@@ -588,7 +591,7 @@ async def main() -> None:
         ),
         reverse=True,
     )
-    default_count = sum(1 for token in result_tokens if default_selected(token["tags"]))
+    default_count = len(result_tokens)
     elapsed = round(time.time() - scan_start, 1)
 
     result = {

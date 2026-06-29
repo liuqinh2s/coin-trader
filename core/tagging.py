@@ -18,7 +18,6 @@ from core.scanner import (
 )
 from core.strategy import (
     is_15m_trend_up,
-    is_1d_boll_trend_up,
     is_1d_trend_up,
     is_1h_trend_up,
     is_4h_trend_up,
@@ -42,7 +41,7 @@ def min_price_180d(sym: dict) -> float:
 
 
 def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
-    """长线未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
+    """未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
         data = sym["1D"]["data"]
         if len(data) < 180:
@@ -59,23 +58,6 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
         return False
 
 
-def check_short_anti_chase(sym: dict) -> bool:
-    """短线未追高：当日涨幅 <= 20%，且价格 <= 日K 的 MA7 * 1.2"""
-    try:
-        data = sym["1D"]["data"]
-        if len(data) < 7:
-            return False
-        close = float(data[-1][4])
-        open_price = float(data[-1][1])
-        daily_gain = (close - open_price) / open_price if open_price > 0 else 0
-        if daily_gain > 0.20:
-            return False
-        ma7 = sum(float(x[4]) for x in data[-7:]) / 7
-        return ma7 > 0 and close <= ma7 * 1.2
-    except (IndexError, KeyError, ValueError):
-        return False
-
-
 def check_ma60_up(sym: dict) -> bool:
     """MA60向上：日K 的 MA60 今日 > 昨日"""
     try:
@@ -86,19 +68,6 @@ def check_ma60_up(sym: dict) -> bool:
             return False
         return today > yesterday
     except (IndexError, KeyError, ValueError, TypeError):
-        return False
-
-
-def check_short_pullback(sym: dict) -> bool:
-    """短期回调：当前 4H 收盘价相对前 6 根 4H 高点回落至少 10%。"""
-    try:
-        data = sym["4H"]["data"]
-        if len(data) < 7:
-            return False
-        prev_high = max(float(b[2]) for b in data[-7:-1])
-        current_price = float(data[-1][4])
-        return prev_high > 0 and current_price <= prev_high * 0.90
-    except (IndexError, KeyError, ValueError):
         return False
 
 
@@ -136,7 +105,7 @@ def build_symbol_tags(
     leading: set[str],
     anomaly_dict: dict,
 ) -> list[str]:
-    """组装单个币的标签列表（不含需要候选集的 小量大涨/仙人指路）。
+    """组装单个币的标签列表（不含需要候选集的 仙人指路）。
 
     与 scripts/scan.py 主循环的标签判定逐条一致。
     """
@@ -146,12 +115,6 @@ def build_symbol_tags(
     try:
         if is_trend_confluence(sym):
             tags.append("趋势共振")
-    except (IndexError, KeyError, ValueError):
-        pass
-
-    try:
-        if is_1d_boll_trend_up(sym):
-            tags.append("日K趋势向上")
     except (IndexError, KeyError, ValueError):
         pass
 
@@ -167,13 +130,9 @@ def build_symbol_tags(
     if anomaly_tf:
         tags.append(f"成交量异动({anomaly_tf})")
     if check_anti_chase(sym, cfg):
-        tags.append("长线未追高")
-    if check_short_anti_chase(sym):
-        tags.append("短线未追高")
+        tags.append("未追高")
     if check_ma60_up(sym):
         tags.append("MA60向上")
-    if check_short_pullback(sym):
-        tags.append("短期回调")
 
     if fund_rate < cfg.get("negative_funding_threshold", -0.05):
         tags.append(f"负费率({fund_rate * 100:.2f}%)")

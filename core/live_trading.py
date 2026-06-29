@@ -40,7 +40,6 @@ from core.scanner import (
 )
 from core.strategy import (
     is_15m_trend_up, is_1h_trend_up, is_4h_trend_up, is_1d_trend_up,
-    is_btc_12h_not_down,
 )
 from core.tagging import build_symbol_tags
 from infra.util import get_time_ms
@@ -398,7 +397,7 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
 
         valid_symbols.append(key)
 
-        # ---- 策略：BTC大盘方向 + 多周期趋势共振 + 波动充足 + 长线未追高 ----
+        # ---- 策略：多周期趋势共振 + 波动充足 ----
         trend_all_up = (
             is_15m_trend_up(sym, "15m")
             and is_1h_trend_up(sym, "1H")
@@ -415,21 +414,20 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
             < sym["1D"]["bolling"]["Lower Band"][-1] * max_boll
         )
         not_above_upper = close_price < sym["1D"]["bolling"]["Upper Band"][-1] * max_upper
-        btc_ok = is_btc_12h_not_down(all_sym)
 
         if trend_all_up:
             trend_up_symbols.append(key)
             # 调试：趋势共振币逐条件打印
             log.info(
-                "%s 条件检查: btc_ok=%s not_overextended=%s "
+                "%s 条件检查: not_overextended=%s "
                 "not_above_upper=%s not_rubbish=%s",
-                key, btc_ok, not_overextended, not_above_upper, not _is_rubbish(sym),
+                key, not_overextended, not_above_upper, not _is_rubbish(sym),
             )
 
         # 四条件组合即可开仓，不再要求成交量异动
         if (trend_all_up and not_overextended and not_above_upper
-                and btc_ok and not _is_rubbish(sym)):
-            state.buy_list[key] = {"reason": "趋势共振 + 波动充足 + 长线未追高", "bonus": []}
+                and not _is_rubbish(sym)):
+            state.buy_list[key] = {"reason": "趋势共振 + 波动充足", "bonus": []}
 
         # 成交量异动检测，有异动的币标记加分
         anomaly_tf = detect_volume_anomaly(all_sym, key, "buy", volume_anomaly)
@@ -578,13 +576,11 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             "tags": tags,
         }
 
-    # ---- 对候选集补充需要候选集才能算的标签：小量大涨 / 仙人指路 ----
+    # ---- 对候选集补充需要候选集才能算的标签：仙人指路 ----
     if state.buy_list:
         low_vol = set(select_by_volume(all_sym, state))
         fairy = set(find_fairy_guide(all_sym, state))
         for k in state.buy_list:
-            if k in low_vol:
-                state.buy_list[k]["tags"].append("小量大涨")
             if k in fairy:
                 state.buy_list[k]["tags"].append("仙人指路")
 
