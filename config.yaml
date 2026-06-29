@@ -33,8 +33,6 @@ auto_trade:
   atr_min: 0.001
   liquidation_stop_buffer_pct: 0.005
   liquidation_margin_buffer_pct: 0.004
-  max_extra_margin_pct: 0.08
-  min_extra_margin_usdt: 0.1
   market_cap_max: 1000000000
   market_cap_cache_ttl_seconds: 86400
   min_quote_volume_1d: 500000

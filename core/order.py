@@ -46,51 +46,10 @@ def _format_size(size: Decimal) -> str:
     return format(size.normalize(), "f")
 
 
-def _format_usdt_amount(amount: float) -> str:
-    dec = Decimal(str(amount)).quantize(Decimal("0.00000001"))
-    return format(dec.normalize(), "f")
-
-
 def _exchange_leverage(cfg: dict) -> int:
     if EXCHANGE == "bitget":
         return 10
     return int(cfg.get("leverage", 10))
-
-
-def _add_margin_for_effective_1x(
-    symbol: str,
-    filled_price: float,
-    filled_size: float,
-    leverage: int,
-) -> dict:
-    result = {
-        "target_effective_leverage": 1,
-        "exchange_leverage": leverage,
-        "extra_margin_usdt": 0.0,
-        "extra_margin_added": False,
-    }
-    if EXCHANGE != "bitget" or leverage <= 1:
-        return result
-
-    notional = filled_price * filled_size
-    initial_margin = notional / leverage
-    extra_margin = max(notional - initial_margin, 0.0)
-    result["extra_margin_usdt"] = extra_margin
-    if extra_margin <= 0:
-        return result
-
-    try:
-        amount = _format_usdt_amount(extra_margin)
-        resp = get_exchange().set_position_margin(
-            symbol, get_exchange().PRODUCT_TYPE, "USDT", amount, "long",
-        )
-        log.info("%s added margin for effective 1x: %s USDT %s", symbol, amount, resp)
-        result["extra_margin_added"] = True
-        result["extra_margin_response"] = resp
-    except Exception as exc:
-        log.warning("%s failed to add margin for effective 1x: %s", symbol, exc)
-        result["extra_margin_error"] = str(exc)
-    return result
 
 
 def close_position(symbol: str, state: AccountState,
@@ -221,9 +180,6 @@ def open_position(symbol: str, price: float, state: AccountState,
 
     filled_price = float(detail["data"]["priceAvg"])
     filled_size = float(detail["data"]["baseVolume"])
-    effective_margin = _add_margin_for_effective_1x(
-        symbol, filled_price, filled_size, leverage,
-    )
 
     if risk_info:
         stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
@@ -241,7 +197,6 @@ def open_position(symbol: str, price: float, state: AccountState,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
-            "effective_margin": effective_margin,
         })
 
     # 写入内存持仓，避免再次从服务器拉取

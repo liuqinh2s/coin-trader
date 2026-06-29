@@ -249,19 +249,18 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
             break
 
-        stop_distance = signal.close
-        if stop_distance <= 0:
+        if signal.close <= 0:
             log.info("%s 止损距离异常，跳过", key)
             continue
 
-        risk_budget = min(
+        target_notional = min(
             equity * position_fraction,
             equity * max_symbol_notional_pct,
-            equity * max_total_risk - current_risk,
         )
-        risk_size = Decimal(str(risk_budget / stop_distance))
-        max_notional_size = Decimal(str((equity * max_symbol_notional_pct) / signal.close))
-        size = min(risk_size, max_notional_size)
+        if current_risk + target_notional > equity * max_total_risk:
+            log.info("%s 开仓后总风险超限，跳过", key)
+            continue
+        size = Decimal(str(target_notional / signal.close))
 
         try:
             min_size, volume_place, _price_tick = _contract_min_size_and_places(ex, key)
@@ -275,7 +274,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             continue
 
         notional = float(size) * signal.close
-        planned_risk = float(size) * stop_distance
+        planned_risk = notional
         margin_need = notional / leverage if leverage else notional
         try:
             res = ex.open_count(
@@ -285,8 +284,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             exchange_size = Decimal(str(res["data"]["size"]))
             if exchange_size < size:
                 size = _round_size_down(exchange_size, volume_place)
-                planned_risk = float(size) * stop_distance
                 notional = float(size) * signal.close
+                planned_risk = notional
                 if size < min_size:
                     log.info("%s 交易所可开数量 %s 小于最小下单量 %s，跳过", key, size, min_size)
                     continue
