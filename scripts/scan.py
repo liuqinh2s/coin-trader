@@ -327,7 +327,7 @@ async def fetch_klines(
     rows: list = []
     end_time: int | None = None
     seen_timestamps: set[str] = set()
-    page_limit = min(limit, 100)
+    page_limit = min(limit, 200)
 
     while len(rows) < limit:
         url = (
