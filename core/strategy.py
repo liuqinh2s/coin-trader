@@ -45,8 +45,8 @@ def is_1d_trend_up(sym: dict) -> bool:
     upper = boll["Upper Band"]
     close = float(sym["1D"]["data"][-1][4])
     return (
-        mid[-1] > mid[-2] > mid[-3] > mid[-4]
-        and upper[-1] > upper[-2] > upper[-3]
+        mid[-1] > mid[-2]
+        and upper[-1] > upper[-2]
         and close > mid[-1]
     )
 

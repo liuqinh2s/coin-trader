@@ -151,7 +151,7 @@ async def get_all_data(
         position_keys = list(state.position.keys()) if state else []
         ban_stock = cfg.get("ban_stock_list", [])
         ban_stable = cfg.get("ban_stable_list", [])
-        ban_list = position_keys + ban_stock + ban_stable + cooldown_ban
+        ban_list = position_keys + ban_stock + ban_stable
     else:
         symbols = {"data": [{"symbol": key} for key in key_list]}
 

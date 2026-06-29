@@ -38,7 +38,7 @@ auto_trade:
   min_quote_volume_1d: 500000
 
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
-rebuy_cooldown_hours: 2
+rebuy_cooldown_hours: 0
 
 # 回撤止盈：浮盈达到启动门槛后开始跟踪，从最高点回撤固定比例即止盈
 trailing_activation_pct: 0.06 # 浮盈达到6%才启动跟踪
