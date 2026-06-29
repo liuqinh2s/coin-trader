@@ -44,10 +44,13 @@ def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
     """未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
     try:
         data = sym["1D"]["data"]
+        if len(data) < 180:
+            return True
         close = float(data[-1][4])
         boll = sym["1D"]["bolling"]
         return (
             close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
+            and close <= min_price_180d(sym) * cfg.get("max_180d_low_gain_mult", 4.0)
             and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
             and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
         )
