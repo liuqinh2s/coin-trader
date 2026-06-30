@@ -3,13 +3,13 @@
 # =============================================================================
 
 # 杠杆倍数
-leverage: 1
+leverage: 10
 
 # 最小下单金额 (USDT)
 min_usdt: 10
 
 # 最大持仓数
-max_long_positions: 5
+max_long_positions: 2
 
 # =============================================================================
 #  风控参数
@@ -23,8 +23,9 @@ max_burst_count: 2
 
 # 自动交易策略（只做多，日K/周K布林趋势）
 auto_trade:
-  risk_per_trade: 0.02
-  position_fraction: 0.02
+  risk_per_trade: 0.04
+  min_tag_count: 5
+  extra_margin_multiple: 9
   max_total_risk: 0.10
   max_symbol_notional_pct: 0.20
   atr_length: 14

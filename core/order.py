@@ -180,6 +180,17 @@ def open_position(symbol: str, price: float, state: AccountState,
 
     filled_price = float(detail["data"]["priceAvg"])
     filled_size = float(detail["data"]["baseVolume"])
+    extra_margin = float((risk_info or {}).get("extra_margin_usdt") or 0)
+    extra_margin_added = 0.0
+    if extra_margin > 0:
+        try:
+            margin_info = ex.set_position_margin(
+                symbol, ex.PRODUCT_TYPE, "USDT", str(extra_margin), "long",
+            )
+            extra_margin_added = extra_margin
+            log.info("%s 开仓后追加逐仓保证金 %.4f USDT: %s", symbol, extra_margin, margin_info)
+        except Exception as exc:
+            log.warning("%s 开仓后追加逐仓保证金失败 %.4f USDT: %s", symbol, extra_margin, exc)
 
     if risk_info:
         stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
@@ -197,6 +208,7 @@ def open_position(symbol: str, price: float, state: AccountState,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
             "stop_price": stop_price,
+            "extra_margin_added_usdt": extra_margin_added,
         })
 
     # 写入内存持仓，避免再次从服务器拉取

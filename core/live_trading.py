@@ -54,19 +54,22 @@ def _has_tag(tags: list[str], tag_key: str) -> bool:
     return any(tag == tag_key or tag.startswith(f"{tag_key}(") for tag in tags)
 
 
-def _is_small_cap_volume_candidate(info: dict) -> bool:
-    tags = info.get("tags", [])
-    return _has_tag(tags, "小市值") and _has_tag(tags, "成交量异动")
+def _tag_count(info: dict) -> int:
+    return int(info.get("tag_count", len(info.get("tags", []))))
 
 
-def _small_cap_volume_rank(info: dict) -> tuple[float, float, float, int]:
+def _has_enough_tags(info: dict, min_tag_count: int) -> bool:
+    return _tag_count(info) >= min_tag_count
+
+
+def _tag_count_rank(info: dict) -> tuple[int, float, float, float]:
     signal = info["signal"]
     market_cap = signal.market_cap if signal.market_cap > 0 else float("inf")
     return (
-        market_cap,
+        -_tag_count(info),
         -signal.volume_ratio,
-        -signal.quote_volume,
-        -info.get("tag_count", 0),
+        market_cap,
+        signal.low_position_pct,
     )
 
 
@@ -221,23 +224,25 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
+    min_tag_count = int(auto_cfg.get("min_tag_count", 5))
     candidate_keys = [
         key for key, info in state.buy_list.items()
-        if _is_small_cap_volume_candidate(info)
+        if _has_enough_tags(info, min_tag_count)
     ]
     if not candidate_keys:
-        log.info("自动交易候选：无小市值+成交量异动")
+        log.info("自动交易候选：无标签数 >= %d 的币", min_tag_count)
         return
 
-    # 开仓只看"小市值 + 成交量异动"，优先市值更小、放量更强的币。
+    # 开仓按标签数量排序，命中标签越多越优先。
     sorted_keys = sorted(
         candidate_keys,
-        key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
+        key=lambda k: _tag_count_rank(state.buy_list[k]),
     )[:AUTO_TRADE_VISIBLE_LIMIT]
     log.info(
-        "自动交易候选（小市值+成交量异动，市值升序/放量降序）：%s",
+        "自动交易候选（标签数 >= %d，标签数降序）：%s",
+        min_tag_count,
         ", ".join(
-            f"{k}(市值={state.buy_list[k]['signal'].market_cap:.0f}, "
+            f"{k}(标签={_tag_count(state.buy_list[k])}, "
             f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
             for k in sorted_keys
         ),
@@ -251,10 +256,9 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         return
 
     risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
-    position_fraction = float(auto_cfg.get("position_fraction", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
-    max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
-    leverage = 10 if EXCHANGE == "bitget" else int(cfg.get("leverage", 10))
+    leverage = 10
+    extra_margin_multiple = float(auto_cfg.get("extra_margin_multiple", 9))
     current_risk = _current_total_risk(state, all_sym, auto_cfg)
     log.info(
         "当前总风险占用: %.4f / %.4f USDT (%.2f%% / %.2f%%)",
@@ -276,22 +280,18 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
             break
 
-        if signal.close <= 0:
+        if signal.close <= 0 or signal.stop_price <= 0 or signal.close <= signal.stop_price:
             log.info("%s 止损距离异常，跳过", key)
             continue
 
-        target_margin = min(
-            equity * position_fraction,
-            (equity * max_symbol_notional_pct) / leverage if leverage else equity * max_symbol_notional_pct,
-        )
-        target_notional = target_margin * leverage if leverage else target_margin
-        if current_risk + target_margin > equity * max_total_risk:
+        target_risk = equity * risk_per_trade
+        if current_risk + target_risk > equity * max_total_risk:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
-        size = Decimal(str(target_notional / signal.close))
+        size = Decimal(str(target_risk / (signal.close - signal.stop_price)))
 
         try:
-            min_size, volume_place, _price_tick = _contract_min_size_and_places(ex, key)
+            min_size, volume_place, price_tick = _contract_min_size_and_places(ex, key)
         except Exception as exc:
             log.warning("%s 获取交易所最小下单量失败，严格跳过: %s", key, exc)
             continue
@@ -302,8 +302,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             continue
 
         notional = float(size) * signal.close
-        margin_need = min(target_margin, notional / leverage if leverage else notional)
-        planned_risk = margin_need
+        margin_need = notional / leverage
+        planned_risk = (signal.close - signal.stop_price) * float(size)
         try:
             res = ex.open_count(
                 key, ex.PRODUCT_TYPE, "USDT",
@@ -313,7 +313,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             if exchange_size < size:
                 size = _round_size_down(exchange_size, volume_place)
                 notional = float(size) * signal.close
-                planned_risk = min(target_margin, notional / leverage if leverage else notional)
+                margin_need = notional / leverage
+                planned_risk = (signal.close - signal.stop_price) * float(size)
                 if size < min_size:
                     log.info("%s 交易所可开数量 %s 小于最小下单量 %s，跳过", key, size, min_size)
                     continue
@@ -325,12 +326,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 开仓后总风险超限，跳过", key)
             continue
 
+        stop_loss = _round_price_to_tick(Decimal(str(signal.stop_price)), price_tick)
         reason = buy_info.get("reason") or build_auto_trade_reason(signal)
         risk_info = {
             "strategy": AUTO_TRADE_TAG,
             "planned_risk_usdt": planned_risk,
             "risk_per_trade": risk_per_trade,
-            "position_fraction": position_fraction,
             "total_risk_before_usdt": current_risk,
             "stop_price": signal.stop_price,
             "atr": signal.atr,
@@ -338,18 +339,21 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap": signal.market_cap,
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
+            "initial_margin_usdt": margin_need,
+            "extra_margin_usdt": margin_need * extra_margin_multiple,
+            "extra_margin_multiple": extra_margin_multiple,
         }
         log.info(
-            "%s 自动交易开仓: 小市值+成交量异动 [%s] size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
-            key, ", ".join(matched_tags),
-            size, notional, planned_risk, signal.stop_price,
-            signal.market_cap, signal.market_cap_source.get("id"),
+            "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g extra_margin=%.2f",
+            key, _tag_count(buy_info), ", ".join(matched_tags),
+            size, notional, planned_risk,
+            signal.stop_price, margin_need * extra_margin_multiple,
         )
         result = order(
             key, all_sym[key]["1D"]["data"], "BUY", state,
             reason=reason, bonus=buy_info.get("bonus", []),
             size=_format_decimal(size),
-            preset_stop_loss="",
+            preset_stop_loss=_format_decimal(stop_loss),
             risk_info=risk_info,
         )
         if result is not None:
@@ -598,11 +602,11 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
         shortlist_n = max(3 * max_positions, 12)
         trade_candidates = [
             k for k, info in state.buy_list.items()
-            if _is_small_cap_volume_candidate(info)
+            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 5)))
         ]
         shortlist = sorted(
             trade_candidates,
-            key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
+            key=lambda k: _tag_count_rank(state.buy_list[k]),
         )[:shortlist_n]
         threshold = cfg.get("negative_funding_threshold", -0.05)
         for k in shortlist:
@@ -619,17 +623,22 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             tag_list = info["tags"]
             info["tag_count"] = len(tag_list)
             info["bonus"] = tag_list
-            info["reason"] = f"小市值+成交量异动选币（命中 {len(tag_list)} 个标签）"
+            info["reason"] = f"标签数量优先选币（命中 {len(tag_list)} 个标签）"
 
+        trade_candidates = [
+            k for k, info in state.buy_list.items()
+            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 5)))
+        ]
         ranked = sorted(
             trade_candidates,
-            key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
+            key=lambda k: _tag_count_rank(state.buy_list[k]),
         )
         log.info(
-            "自动交易候选（小市值+成交量异动，共%d）：%s",
+            "自动交易候选（标签数 >= %d，共%d）：%s",
+            int(auto_cfg.get("min_tag_count", 5)),
             len(ranked),
             ", ".join(
-                f"{k}(市值={state.buy_list[k]['signal'].market_cap:.0f}, "
+                f"{k}(标签={state.buy_list[k]['tag_count']}, "
                 f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
                 for k in ranked[:shortlist_n]
             ),
