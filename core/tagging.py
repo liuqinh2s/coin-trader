@@ -82,6 +82,14 @@ def is_trend_confluence(sym: dict) -> bool:
     )
 
 
+def is_daily_boll_trend_up(sym: dict) -> bool:
+    """日K趋势向上：布林中轨今>昨，布林上轨今>昨。"""
+    boll = sym["1D"]["bolling"]
+    mid = boll["Middle Band"]
+    upper = boll["Upper Band"]
+    return mid[-1] > mid[-2] and upper[-1] > upper[-2]
+
+
 # =============================================================================
 #  组装单币标签列表（与 scripts/scan.py 主循环逐条对应）
 # =============================================================================
@@ -106,6 +114,12 @@ def build_symbol_tags(
     try:
         if is_trend_confluence(sym):
             tags.append("趋势共振")
+    except (IndexError, KeyError, ValueError):
+        pass
+
+    try:
+        if is_daily_boll_trend_up(sym):
+            tags.append("日K趋势向上")
     except (IndexError, KeyError, ValueError):
         pass
 

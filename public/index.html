@@ -313,6 +313,11 @@
             color: #fff;
         }
 
+        .tag-daily-trend {
+            background: #1976d2;
+            color: #fff;
+        }
+
         .tag-safe {
             background: #00c853;
             color: #fff;
@@ -596,7 +601,7 @@
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
                 默认不选中标签，按标签数量降序展示前10个<br>
-                可选标签：小市值 · 波动充足 · 趋势共振 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 未追高<br>
+                可选标签：小市值 · 波动充足 · 趋势共振 · 日K趋势向上 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 未追高<br>
                 默认选出的10个币会同步读取 Crypto Mint 消息面评分（仅展示，不参与排序）
             </p>
         </header>
@@ -684,6 +689,7 @@
         // 标签样式映射
         const TAG_STYLES = {
             '趋势共振': 'tag-trend',
+            '日K趋势向上': 'tag-daily-trend',
             '成交量异动': 'tag-volume',
             '未追高': 'tag-safe',
             '负费率': 'tag-fundrate',
