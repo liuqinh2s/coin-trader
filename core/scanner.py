@@ -223,10 +223,11 @@ def find_fairy_guide(all_sym: dict, state: AccountState) -> list[str]:
         return result
     for sym in state.buy_list:
         data = all_sym[sym]["1D"]["data"]
-        if len(data) < 10:
+        if len(data) < 19:
             continue
-        for i in range(-10, 0):
-            vol_sum = sum(float(data[i + j][6]) for j in range(-10, -1))
+        start_idx = max(len(data) - 10, 9)
+        for i in range(start_idx, len(data)):
+            vol_sum = sum(float(bar[6]) for bar in data[i - 9:i])
             bar = data[i]
             o, h, c, v = float(bar[1]), float(bar[2]), float(bar[4]), float(bar[6])
             if v > vol_sum and o * 1.2 < h < o * 1.6 and h * 0.92 > c > o:
