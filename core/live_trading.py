@@ -224,7 +224,7 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
-    min_tag_count = int(auto_cfg.get("min_tag_count", 5))
+    min_tag_count = int(auto_cfg.get("min_tag_count", 7))
     candidate_keys = [
         key for key, info in state.buy_list.items()
         if _has_enough_tags(info, min_tag_count)
@@ -602,7 +602,7 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
         shortlist_n = max(3 * max_positions, 12)
         trade_candidates = [
             k for k, info in state.buy_list.items()
-            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 5)))
+            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 7)))
         ]
         shortlist = sorted(
             trade_candidates,
@@ -627,7 +627,7 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
 
         trade_candidates = [
             k for k, info in state.buy_list.items()
-            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 5)))
+            if _has_enough_tags(info, int(auto_cfg.get("min_tag_count", 7)))
         ]
         ranked = sorted(
             trade_candidates,
@@ -635,7 +635,7 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
         )
         log.info(
             "自动交易候选（标签数 >= %d，共%d）：%s",
-            int(auto_cfg.get("min_tag_count", 5)),
+            int(auto_cfg.get("min_tag_count", 7)),
             len(ranked),
             ", ".join(
                 f"{k}(标签={state.buy_list[k]['tag_count']}, "
