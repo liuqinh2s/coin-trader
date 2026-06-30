@@ -907,6 +907,9 @@
             for (const key of activeTagFilter) {
                 if (tagCounts[key] === undefined) tagCounts[key] = 0;
             }
+            for (const key of Object.keys(TAG_STYLES)) {
+                if (tagCounts[key] === undefined) tagCounts[key] = 0;
+            }
             const sorted = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
             tagBar.innerHTML = sorted.map(([key, count]) => {
                 const isActive = activeTagFilter.includes(key) ? ' active' : '';

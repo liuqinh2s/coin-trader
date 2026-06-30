@@ -84,11 +84,12 @@ def is_trend_confluence(sym: dict) -> bool:
 
 
 def is_daily_boll_trend_up(sym: dict) -> bool:
-    """日K趋势向上：布林中轨今>昨，布林上轨今>昨。"""
+    """日K趋势向上：布林中轨今>昨，布林上轨今>昨，收盘价>中轨。"""
     boll = sym["1D"]["bolling"]
     mid = boll["Middle Band"]
     upper = boll["Upper Band"]
-    return mid[-1] > mid[-2] and upper[-1] > upper[-2]
+    close = float(sym["1D"]["data"][-1][4])
+    return mid[-1] > mid[-2] and upper[-1] > upper[-2] and close > mid[-1]
 
 
 def is_three_bullish_days(sym: dict) -> bool:
