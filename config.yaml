@@ -40,9 +40,15 @@ auto_trade:
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
 rebuy_cooldown_hours: 0
 
-# 回撤止盈：浮盈达到启动门槛后开始跟踪，从最高点回撤固定比例即止盈
-trailing_activation_pct: 0.06 # 浮盈达到6%才启动跟踪
-trailing_pullback_pct: 0.03 # 从最高点回撤3%即止盈
+# 阶梯回撤止盈配置: [涨幅倍数, 允许回撤比例]
+trailing_stop_tiers:
+  - [1.50, 0.50]
+  - [1.40, 0.20]
+  - [1.30, 0.15]
+  - [1.25, 0.13]
+  - [1.20, 0.10]
+  - [1.13, 0.08]
+  - [1.06, 0.06]
 unprofitable_exit_days: 2
 weak_gain_exit_days: 3
 weak_gain_threshold_pct: 0.06

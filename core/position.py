@@ -52,17 +52,40 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
         notify(f"{symbol} {reason}，最高涨幅{max_gain_pct * 100:.2f}%")
         return True
 
-    activation_pct = cfg.get("trailing_activation_pct", 0.06)
-    pullback_pct = cfg.get("trailing_pullback_pct", 0.03)
-    if (
-        price_high > price_avg * (1 + activation_pct)
-        and price_high > price * (1 + pullback_pct)
-    ):
-        high_pct = (price_high - price_avg) * 100 / price_avg
-        reason = f"回撤止盈(最高涨{high_pct:.2f}%,回撤{pullback_pct * 100:.0f}%)"
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-        notify(f"止盈单，最高涨{high_pct:.2f}%，从高点回撤{pullback_pct * 100:.0f}%")
-        return True
+    tiers = cfg.get(
+        "trailing_stop_tiers",
+        [
+            [1.50, 0.50],
+            [1.40, 0.20],
+            [1.30, 0.15],
+            [1.25, 0.13],
+            [1.20, 0.10],
+            [1.13, 0.08],
+            [1.06, 0.06],
+        ],
+    )
+    for gain_mult, pullback in tiers:
+        if price_high <= price_avg * gain_mult:
+            continue
+
+        if gain_mult == 1.50:
+            trigger = (price_avg + price_high) / 2
+            if price < trigger:
+                high_pct = (price_high - price_avg) * 100 / price_avg
+                reason = f"阶梯止盈(涨{high_pct:.2f}%,回落一半)"
+                order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
+                notify(f"止盈单，涨{high_pct:.2f}%，回落一半")
+                return True
+        elif price_high > price * (1 + pullback):
+            reason = f"阶梯止盈(涨>{(gain_mult - 1) * 100:.0f}%,回撤{pullback * 100:.0f}%)"
+            order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
+            notify(
+                f"止盈单，涨{(gain_mult - 1) * 100:.0f}%，"
+                f"回落{pullback * 100:.0f}%"
+            )
+            return True
+
+        break
 
     return False
 
