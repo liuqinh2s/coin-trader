@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from core.auto_strategy import (
@@ -98,8 +99,12 @@ def is_three_bullish_days(sym: dict) -> bool:
 
 def is_daily_ma60_up(sym: dict) -> bool:
     """日K线MA60上行：日K线MA60今>昨。"""
-    ma60 = sym["1D"]["ma60"]
-    return ma60[-1] > ma60[-2]
+    ma60 = sym.get("1D", {}).get("ma60") or []
+    if len(ma60) < 2:
+        return False
+    today = float(ma60[-1])
+    yesterday = float(ma60[-2])
+    return math.isfinite(today) and math.isfinite(yesterday) and today > yesterday
 
 
 # =============================================================================
