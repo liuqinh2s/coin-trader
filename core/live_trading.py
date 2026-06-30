@@ -35,7 +35,7 @@ from core.risk_cache import load_position_risk
 from core.scanner import (
     detect_volume_anomaly, select_by_volume,
     find_fairy_guide, find_leading_coins,
-    detect_consolidation_breakout, detect_early_strong_trend,
+    detect_early_strong_trend,
 )
 from core.strategy import (
     is_15m_trend_up, is_1h_trend_up, is_4h_trend_up, is_1d_trend_up,
@@ -448,12 +448,6 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
                     state.buy_list[key]["bonus"].append(f"负费率({total*100:.2f}%)")
             except Exception as e:
                 log.warning("获取 %s 资金费率异常: %s", key, e)
-
-        # 盘整放量突破（1H 周期）
-        for key in state.buy_list:
-            if detect_consolidation_breakout(all_sym.get(key, {}), "1H"):
-                state.buy_list[key]["bonus"].append("盘整放量突破")
-                log.info("🔔 %s 出现 1H 盘整放量突破信号", key)
 
         # 强势启动（4H MA多头排列加速）
         for key in state.buy_list:

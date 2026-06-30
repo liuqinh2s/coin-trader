@@ -11,7 +11,6 @@ from core.auto_strategy import (
     evaluate_auto_trade_conditions,
 )
 from core.scanner import (
-    detect_consolidation_breakout,
     detect_early_strong_trend,
     detect_volume_anomaly,
 )
