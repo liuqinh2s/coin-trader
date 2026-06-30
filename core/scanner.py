@@ -43,22 +43,20 @@ def _is_15m_anomaly(all_sym: dict, symbol: str, j: int, direction: str) -> bool:
         if upper_1h > lower_1h * 1.22:
             return False
 
-    vol_sum_9 = sum(float(data[i + j][6]) for i in range(-11, -2))
-    vol_sum_19 = vol_sum_9 + sum(float(data[i + j][6]) for i in range(-21, -11))
+    vol_sum_8 = sum(float(data[i + j][6]) for i in range(-11, -3))
 
     bar_vol = float(data[-2 + j][6])
     bar_close = float(data[-2 + j][4])
     bar_open = float(data[-2 + j][1])
 
-    vol_short = bar_vol >= vol_sum_9 and bar_vol >= 100_000
-    vol_long = bar_vol >= vol_sum_19 and bar_vol >= 40_000
+    vol_short = bar_vol >= vol_sum_8 and bar_vol >= 100_000
 
     if direction == "buy":
-        price_ok = bar_open * 0.992 < bar_close < bar_open * 1.23
+        price_ok = bar_open * 1.02 < bar_close < bar_open * 1.23
     else:
         price_ok = bar_open * 0.945 < bar_close < bar_open * 1.008
 
-    return (vol_short or vol_long) and price_ok
+    return vol_short and price_ok
 
 
 def _is_1h_anomaly(all_sym: dict, symbol: str, j: int, direction: str) -> bool:
@@ -120,9 +118,6 @@ def detect_volume_anomaly(all_sym: dict, symbol: str, direction: str,
     if _is_15m_anomaly(all_sym, symbol, 0, direction):
         anomaly_dict["15m"].append(symbol)
         return "15m"
-    if _is_1h_anomaly(all_sym, symbol, 0, direction):
-        anomaly_dict["1H"].append(symbol)
-        return "1H"
     return ""
 
 

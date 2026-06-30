@@ -50,6 +50,26 @@ MS_1D = 24 * 60 * 60 * 1000
 AUTO_TRADE_VISIBLE_LIMIT = 10
 
 
+def _has_tag(tags: list[str], tag_key: str) -> bool:
+    return any(tag == tag_key or tag.startswith(f"{tag_key}(") for tag in tags)
+
+
+def _is_small_cap_volume_candidate(info: dict) -> bool:
+    tags = info.get("tags", [])
+    return _has_tag(tags, "小市值") and _has_tag(tags, "成交量异动")
+
+
+def _small_cap_volume_rank(info: dict) -> tuple[float, float, float, int]:
+    signal = info["signal"]
+    market_cap = signal.market_cap if signal.market_cap > 0 else float("inf")
+    return (
+        market_cap,
+        -signal.volume_ratio,
+        -signal.quote_volume,
+        -info.get("tag_count", 0),
+    )
+
+
 # =============================================================================
 #  数据校验与过滤
 # =============================================================================
@@ -201,15 +221,26 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
-    # Auto-trading follows the frontend's default list: top 10 by tag count.
+    candidate_keys = [
+        key for key, info in state.buy_list.items()
+        if _is_small_cap_volume_candidate(info)
+    ]
+    if not candidate_keys:
+        log.info("自动交易候选：无小市值+成交量异动")
+        return
+
+    # 开仓只看"小市值 + 成交量异动"，优先市值更小、放量更强的币。
     sorted_keys = sorted(
-        state.buy_list,
-        key=lambda k: state.buy_list[k].get("tag_count", 0),
-        reverse=True,
+        candidate_keys,
+        key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
     )[:AUTO_TRADE_VISIBLE_LIMIT]
     log.info(
-        "自动交易候选（按标签数量降序）：%s",
-        ", ".join(f"{k}({state.buy_list[k].get('tag_count', 0)})" for k in sorted_keys),
+        "自动交易候选（小市值+成交量异动，市值升序/放量降序）：%s",
+        ", ".join(
+            f"{k}(市值={state.buy_list[k]['signal'].market_cap:.0f}, "
+            f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
+            for k in sorted_keys
+        ),
     )
 
     acc = ex.get_accounts(ex.PRODUCT_TYPE)
@@ -223,7 +254,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     position_fraction = float(auto_cfg.get("position_fraction", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
     max_symbol_notional_pct = float(auto_cfg.get("max_symbol_notional_pct", 0.20))
-    min_open_tags = int(auto_cfg.get("min_open_tags", 5))
     leverage = 10 if EXCHANGE == "bitget" else int(cfg.get("leverage", 10))
     current_risk = _current_total_risk(state, all_sym, auto_cfg)
     log.info(
@@ -241,9 +271,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
 
         buy_info = state.buy_list[key]
         matched_tags = buy_info.get("tags", [])
-        if len(matched_tags) < min_open_tags:
-            log.info("%s 标签数 %d < %d，跳过开仓", key, len(matched_tags), min_open_tags)
-            continue
         signal = buy_info["signal"]
         if current_risk >= equity * max_total_risk:
             log.info("总风险占用已达到 %.0f%%，停止新开仓", max_total_risk * 100)
@@ -313,8 +340,8 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "notional_usdt": notional,
         }
         log.info(
-            "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
-            key, len(matched_tags), ", ".join(matched_tags),
+            "%s 自动交易开仓: 小市值+成交量异动 [%s] size=%s notional=%.2f risk=%.2f stop=%.6g market_cap=%.0f source=%s",
+            key, ", ".join(matched_tags),
             size, notional, planned_risk, signal.stop_price,
             signal.market_cap, signal.market_cap_source.get("id"),
         )
@@ -533,7 +560,7 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             continue
 
         valid_symbols.append(key)
-        # 按标签数量准入：先算出能否安全下单所需的 ATR 止损/仓位参数，
+        # 先算出能否安全下单所需的 ATR 止损/仓位参数，
         # 无法安全下单的币（数据不足/ATR或止损无效）跳过。
         risk = compute_trade_risk(
             key,
@@ -566,13 +593,16 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             if k in fairy:
                 state.buy_list[k]["tags"].append("仙人指路")
 
-        # ---- 负费率：逐币 API 太慢，只对标签最多的候选 shortlist 补充 ----
+        # ---- 负费率：逐币 API 太慢，只对开仓候选 shortlist 补充 ----
         max_positions = cfg.get("max_long_positions", 5)
         shortlist_n = max(3 * max_positions, 12)
+        trade_candidates = [
+            k for k, info in state.buy_list.items()
+            if _is_small_cap_volume_candidate(info)
+        ]
         shortlist = sorted(
-            state.buy_list,
-            key=lambda k: len(state.buy_list[k]["tags"]),
-            reverse=True,
+            trade_candidates,
+            key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
         )[:shortlist_n]
         threshold = cfg.get("negative_funding_threshold", -0.05)
         for k in shortlist:
@@ -589,17 +619,20 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             tag_list = info["tags"]
             info["tag_count"] = len(tag_list)
             info["bonus"] = tag_list
-            info["reason"] = f"按标签数量选币（命中 {len(tag_list)} 个标签）"
+            info["reason"] = f"小市值+成交量异动选币（命中 {len(tag_list)} 个标签）"
 
         ranked = sorted(
-            state.buy_list,
-            key=lambda k: len(state.buy_list[k]["tags"]),
-            reverse=True,
+            trade_candidates,
+            key=lambda k: _small_cap_volume_rank(state.buy_list[k]),
         )
         log.info(
-            "自动交易候选（按标签数量降序，共%d）：%s",
+            "自动交易候选（小市值+成交量异动，共%d）：%s",
             len(ranked),
-            ", ".join(f"{k}({len(state.buy_list[k]['tags'])})" for k in ranked[:shortlist_n]),
+            ", ".join(
+                f"{k}(市值={state.buy_list[k]['signal'].market_cap:.0f}, "
+                f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
+                for k in ranked[:shortlist_n]
+            ),
         )
 
     log.info(
