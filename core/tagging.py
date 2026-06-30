@@ -90,6 +90,18 @@ def is_daily_boll_trend_up(sym: dict) -> bool:
     return mid[-1] > mid[-2] and upper[-1] > upper[-2]
 
 
+def is_three_bullish_days(sym: dict) -> bool:
+    """三连阳：近三天日K收盘价均高于开盘价。"""
+    data = sym["1D"]["data"]
+    return all(float(bar[4]) > float(bar[1]) for bar in data[-3:])
+
+
+def is_daily_ma60_up(sym: dict) -> bool:
+    """日K线MA60上行：日K线MA60今>昨。"""
+    ma60 = sym["1D"]["ma60"]
+    return ma60[-1] > ma60[-2]
+
+
 # =============================================================================
 #  组装单币标签列表（与 scripts/scan.py 主循环逐条对应）
 # =============================================================================
@@ -120,6 +132,18 @@ def build_symbol_tags(
     try:
         if is_daily_boll_trend_up(sym):
             tags.append("日K趋势向上")
+    except (IndexError, KeyError, ValueError):
+        pass
+
+    try:
+        if is_three_bullish_days(sym):
+            tags.append("三连阳")
+    except (IndexError, KeyError, ValueError):
+        pass
+
+    try:
+        if is_daily_ma60_up(sym):
+            tags.append("日K线MA60上行")
     except (IndexError, KeyError, ValueError):
         pass
 
