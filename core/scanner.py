@@ -43,7 +43,8 @@ def _is_15m_anomaly(all_sym: dict, symbol: str, j: int, direction: str) -> bool:
         if upper_1h > lower_1h * 1.22:
             return False
 
-    vol_sum_8 = sum(float(data[i + j][6]) for i in range(-11, -3))
+    baseline_volumes = [float(data[i + j][6]) for i in range(-11, -2)]
+    vol_sum_8 = sum(baseline_volumes) - max(baseline_volumes)
 
     bar_vol = float(data[-2 + j][6])
     bar_close = float(data[-2 + j][4])
