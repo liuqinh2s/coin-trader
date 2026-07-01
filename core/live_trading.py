@@ -73,6 +73,27 @@ def _tag_count_rank(info: dict) -> tuple[int, float, float, float]:
     )
 
 
+def _find_fairy_guide_for_keys(all_sym: dict, keys: list[str]) -> set[str]:
+    """Return symbols matching the fairy-guide pattern without touching state.buy_list."""
+    result: set[str] = set()
+    for sym in keys:
+        try:
+            data = all_sym[sym]["1D"]["data"]
+            if len(data) < 19:
+                continue
+            start_idx = max(len(data) - 10, 9)
+            for i in range(start_idx, len(data)):
+                vol_sum = sum(float(bar[6]) for bar in data[i - 9:i])
+                bar = data[i]
+                o, h, c, v = float(bar[1]), float(bar[2]), float(bar[4]), float(bar[6])
+                if v > vol_sum and o * 1.2 < h < o * 1.6 and h * 0.92 > c > o:
+                    result.add(sym)
+                    break
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+    return result
+
+
 # =============================================================================
 #  数据校验与过滤
 # =============================================================================
@@ -237,14 +258,14 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     sorted_keys = sorted(
         candidate_keys,
         key=lambda k: _tag_count_rank(state.buy_list[k]),
-    )[:AUTO_TRADE_VISIBLE_LIMIT]
+    )
     log.info(
         "自动交易候选（标签数 >= %d，标签数降序）：%s",
         min_tag_count,
         ", ".join(
             f"{k}(标签={_tag_count(state.buy_list[k])}, "
             f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
-            for k in sorted_keys
+            for k in sorted_keys[:AUTO_TRADE_VISIBLE_LIMIT]
         ),
     )
 
@@ -358,6 +379,68 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         )
         if result is not None:
             current_risk += planned_risk
+
+
+def _replace_weak_positions_if_possible(all_sym: dict, state: AccountState) -> None:
+    """Close held coins below the tag threshold only when new eligible coins exist."""
+    cfg = get_config()
+    auto_cfg = cfg.get("auto_trade", {})
+    min_tag_count = int(auto_cfg.get("min_tag_count", 7))
+    position_tag_status = getattr(state, "position_tag_status", {})
+
+    new_candidates = [
+        key for key, info in state.buy_list.items()
+        if _has_enough_tags(info, min_tag_count)
+    ]
+    if not new_candidates:
+        weak_symbols = [
+            symbol for symbol, info in position_tag_status.items()
+            if _tag_count(info) < min_tag_count
+        ]
+        if weak_symbols:
+            log.info(
+                "持仓低于%d标签但本轮没有新的%d标签候选，保持原持仓：%s",
+                min_tag_count, min_tag_count, weak_symbols,
+            )
+        return
+
+    weak_positions = [
+        symbol for symbol, info in position_tag_status.items()
+        if (
+            _tag_count(info) < min_tag_count
+            and symbol in state.position
+            and state.position[symbol].get("holdSide") == "long"
+            and symbol in all_sym
+        )
+    ]
+    if not weak_positions:
+        return
+
+    weak_positions = sorted(
+        weak_positions,
+        key=lambda symbol: (
+            _tag_count(position_tag_status[symbol]),
+            int(state.position[symbol].get("cTime", 0) or 0),
+            symbol,
+        ),
+    )
+    replacements = sorted(
+        new_candidates,
+        key=lambda key: _tag_count_rank(state.buy_list[key]),
+    )
+    close_count = min(len(weak_positions), len(replacements))
+    for symbol in weak_positions[:close_count]:
+        info = position_tag_status[symbol]
+        log.info(
+            "%s 持仓标签数=%d低于%d，发现新候选%s，先平仓换仓",
+            symbol, _tag_count(info), min_tag_count,
+            replacements[:close_count],
+        )
+        order(
+            symbol, all_sym[symbol]["1D"]["data"], "SELL", state,
+            only_close=True,
+            close_reason=f"标签数低于{min_tag_count}，换入新的高标签候选",
+        )
 
 
 # =============================================================================
@@ -515,9 +598,10 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
     all_sym: dict = {}
 
     start_time = int(get_time_ms())
-    asyncio.run(get_all_data(["1W", "1D", "4H", "1H", "15m"], all_sym, state=state))
+    cycles = ["1W", "1D", "4H", "1H", "15m"]
+    asyncio.run(get_all_data(cycles, all_sym, state=state))
     if state.position:
-        asyncio.run(get_all_data(["1D"], all_sym, list(state.position.keys()), state=state))
+        asyncio.run(get_all_data(cycles, all_sym, list(state.position.keys()), state=state))
     elapsed = (int(get_time_ms()) - start_time) / 1000
     log.info("抓一遍所有币的数据，耗费时间：%.1fs", elapsed)
 
@@ -644,6 +728,50 @@ def scan_market(state: AccountState, is_four_hour: bool = False) -> dict:
             ),
         )
 
+    position_tag_status: dict[str, dict] = {}
+    position_keys = [
+        k for k, pos in state.position.items()
+        if pos.get("holdSide") == "long" and k in all_sym
+    ]
+    position_fairy = _find_fairy_guide_for_keys(all_sym, position_keys)
+    position_anomaly: dict = {"15m": [], "1H": [], "4H": []}
+    for k in position_keys:
+        sym = all_sym[k]
+        if _is_too_new(sym) or _has_no_data(sym):
+            log.info("%s 持仓标签复评跳过：K线数据不足", k)
+            continue
+        tags = build_symbol_tags(
+            all_sym, k, sym, cfg,
+            market_cap_info=get_symbol_market_cap(k, market_caps),
+            fund_rate=0.0,
+            leading=leading,
+            anomaly_dict=position_anomaly,
+        )
+        if k in position_fairy:
+            tags.append("仙人指路")
+        threshold = cfg.get("negative_funding_threshold", -0.05)
+        try:
+            fund_rate = ex.get_history_fund_rate(k, ex.PRODUCT_TYPE)
+            total = sum(float(x["fundingRate"]) for x in fund_rate["data"])
+            if total < threshold:
+                tags.append(f"负费率({total * 100:.2f}%)")
+        except Exception as exc:
+            log.warning("获取持仓 %s 资金费率异常: %s", k, exc)
+        position_tag_status[k] = {
+            "tags": tags,
+            "tag_count": len(tags),
+        }
+
+    if position_tag_status:
+        log.info(
+            "持仓标签复评：%s",
+            ", ".join(
+                f"{k}(标签={info['tag_count']}, {', '.join(info['tags'])})"
+                for k, info in position_tag_status.items()
+            ),
+        )
+    state.position_tag_status = position_tag_status
+
     log.info(
         "扫描完成，全部交易对:%d 可分析:%d 自动交易候选:%d 冷却跳过:%s 新币:%s 空数据:%s 数据旧:%s",
         len(all_keys), len(valid_symbols), len(state.buy_list),
@@ -706,6 +834,7 @@ def _scan_position(state: AccountState) -> None:
 def _full_scan_and_order(state: AccountState, is_four_hour: bool = False) -> dict:
     """执行完整的自动交易扫描 + 下单。"""
     all_sym = scan_market(state, is_four_hour)
+    _replace_weak_positions_if_possible(all_sym, state)
     _select_and_order(all_sym, state)
     return all_sym
 
