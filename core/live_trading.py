@@ -279,7 +279,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
     risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
     max_total_risk = float(auto_cfg.get("max_total_risk", 0.10))
     leverage = 10
-    extra_margin_multiple = float(auto_cfg.get("extra_margin_multiple", 9))
     current_risk = _current_total_risk(state, all_sym, auto_cfg)
     log.info(
         "当前总风险占用: %.4f / %.4f USDT (%.2f%% / %.2f%%)",
@@ -361,14 +360,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "market_cap_source": signal.market_cap_source,
             "notional_usdt": notional,
             "initial_margin_usdt": margin_need,
-            "extra_margin_usdt": margin_need * extra_margin_multiple,
-            "extra_margin_multiple": extra_margin_multiple,
         }
         log.info(
-            "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g extra_margin=%.2f",
+            "%s 自动交易开仓: 标签数=%d [%s] size=%s notional=%.2f risk=%.2f stop=%.6g",
             key, _tag_count(buy_info), ", ".join(matched_tags),
             size, notional, planned_risk,
-            signal.stop_price, margin_need * extra_margin_multiple,
+            signal.stop_price,
         )
         result = order(
             key, all_sym[key]["1D"]["data"], "BUY", state,
