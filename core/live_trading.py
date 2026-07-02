@@ -382,15 +382,23 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
 
 
 def _replace_weak_positions_if_possible(all_sym: dict, state: AccountState) -> None:
-    """Close held coins below the tag threshold only when new eligible coins exist."""
+    """Close weak held coins only when the portfolio is already full."""
     cfg = get_config()
     auto_cfg = cfg.get("auto_trade", {})
     min_tag_count = int(auto_cfg.get("min_tag_count", 7))
+    max_positions = int(cfg.get("max_long_positions", 5))
     position_tag_status = getattr(state, "position_tag_status", {})
+
+    if len(state.position) < max_positions:
+        log.info(
+            "当前持仓数 %d/%d 未满，低标签持仓不换仓，优先尝试直接开新仓",
+            len(state.position), max_positions,
+        )
+        return
 
     new_candidates = [
         key for key, info in state.buy_list.items()
-        if _has_enough_tags(info, min_tag_count)
+        if _tag_count(info) > min_tag_count
     ]
     if not new_candidates:
         weak_symbols = [
