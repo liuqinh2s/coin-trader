@@ -60,8 +60,10 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
             [1.30, 0.15],
             [1.25, 0.13],
             [1.20, 0.10],
-            [1.13, 0.08],
-            [1.06, 0.06],
+            [1.15, 0.08],
+            [1.13, 0.06],
+            [1.10, 0.04],
+            [1.06, 0.03],
         ],
     )
     for gain_mult, pullback in tiers:
