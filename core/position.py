@@ -69,7 +69,7 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
             continue
 
         if gain_mult == 1.50:
-            trigger = (price_avg + price_high) / 2
+            trigger = max((price_avg + price_high) / 2, price_high * 0.90)
             if price < trigger:
                 high_pct = (price_high - price_avg) * 100 / price_avg
                 reason = f"阶梯止盈(涨{high_pct:.2f}%,回落一半)"
