@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from infra.config import get_config
 from infra.logger import log, notify
-from infra.util import get_time_ms
 
 if TYPE_CHECKING:
     from models import AccountState
@@ -28,29 +27,6 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
 
     if state.position[symbol]["holdSide"] != "long":
         return False
-
-    c_time = int(state.position[symbol]["cTime"])
-    hold_days = (int(get_time_ms()) - c_time) / 1000 / 60 / 60 / 24
-    max_gain_pct = (price_high - price_avg) / price_avg if price_avg > 0 else 0
-
-    unprofitable_exit_days = cfg.get("unprofitable_exit_days", 2)
-    if hold_days >= unprofitable_exit_days and price <= price_avg:
-        pnl_pct = (price - price_avg) * 100 / price_avg if price_avg > 0 else 0
-        reason = f"持仓超过{unprofitable_exit_days:g}天未盈利(当前{pnl_pct:.2f}%)"
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-        notify(f"{symbol} {reason}")
-        return True
-
-    weak_gain_exit_days = cfg.get("weak_gain_exit_days", 3)
-    weak_gain_threshold_pct = cfg.get("weak_gain_threshold_pct", 0.06)
-    if hold_days >= weak_gain_exit_days and max_gain_pct <= weak_gain_threshold_pct:
-        reason = (
-            f"持仓超过{weak_gain_exit_days:g}天最高涨幅不超过"
-            f"{weak_gain_threshold_pct * 100:.0f}%"
-        )
-        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-        notify(f"{symbol} {reason}，最高涨幅{max_gain_pct * 100:.2f}%")
-        return True
 
     tiers = cfg.get("trailing_stop_tiers")
     if not tiers:
