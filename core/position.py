@@ -52,20 +52,10 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
         notify(f"{symbol} {reason}，最高涨幅{max_gain_pct * 100:.2f}%")
         return True
 
-    tiers = cfg.get(
-        "trailing_stop_tiers",
-        [
-            [1.50, 0.50],
-            [1.40, 0.20],
-            [1.30, 0.15],
-            [1.25, 0.13],
-            [1.20, 0.10],
-            [1.15, 0.08],
-            [1.13, 0.06],
-            [1.10, 0.04],
-            [1.06, 0.03],
-        ],
-    )
+    tiers = cfg.get("trailing_stop_tiers")
+    if not tiers:
+        log.error("config.yaml 缺少 trailing_stop_tiers 配置，跳过止盈检查")
+        return False
     for gain_mult, pullback in tiers:
         if price_high <= price_avg * gain_mult:
             continue
