@@ -229,8 +229,7 @@
         }
 
         .copy-btn,
-        .bitget-link,
-        .sentiment-link {
+        .bitget-link {
             display: inline-block;
             font-size: 10px;
             padding: 2px 6px;
@@ -245,38 +244,10 @@
         }
 
         .copy-btn:hover,
-        .bitget-link:hover,
-        .sentiment-link:hover {
+        .bitget-link:hover {
             background: #f0b90b;
             color: #0a0e17;
             border-color: #f0b90b;
-        }
-
-        .sentiment-score {
-            display: inline-flex;
-            min-width: 44px;
-            justify-content: center;
-            padding: 3px 8px;
-            border-radius: 999px;
-            border: 1px solid #2a3a50;
-            background: #111827;
-            color: #7a8599;
-            font-size: 12px;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .sentiment-score.has-score {
-            border-color: rgba(0, 200, 83, .45);
-            background: rgba(0, 200, 83, .12);
-            color: #55e58d;
-        }
-
-        .sentiment-meta {
-            margin-top: 4px;
-            color: #7a8599;
-            font-size: 11px;
-            line-height: 1.4;
         }
 
         .price-up {
@@ -611,8 +582,7 @@
             <p class="subtitle">每15分钟扫描 · Bitget USDT永续 · 多周期趋势共振选币</p>
             <p class="filter-desc">
                 默认不选中标签，按标签数量降序展示前10个<br>
-                可选标签：小市值 · 波动充足 · 趋势共振 · 日K趋势向上 · 日K线MA60上行 · 三连阳 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 未追高<br>
-                默认选出的10个币会同步读取 Crypto Mint 消息面评分（仅展示，不参与排序）
+                可选标签：小市值 · 波动充足 · 趋势共振 · 日K趋势向上 · 日K线MA60上行 · 三连阳 · 成交量异动 · 负资金费率 · 龙头币 · 仙人指路 · 未追高
             </p>
         </header>
 
@@ -632,10 +602,6 @@
             <div class="stat">
                 <span class="label">筛选通过</span>
                 <span class="val" id="filteredCount">--</span>
-            </div>
-            <div class="stat">
-                <span class="label">消息评分</span>
-                <span class="val" id="sentimentCount">--</span>
             </div>
             <div class="stat">
                 <span class="label">耗时</span>
@@ -675,7 +641,6 @@
                         <th>24h高/低</th>
                         <th>资金费率</th>
                         <th>ATR</th>
-                        <th>消息评分</th>
                         <th>加分项标签</th>
                     </tr>
                 </thead>
@@ -693,9 +658,6 @@
         let activeTagFilter = [...DEFAULT_FILTER];
         let historyVisible = false;
         const cache = {};
-        const CRYPTO_MINT_BASE = 'https://liuqinh2s.github.io/crypto-mint/';
-        let cryptoMintPollTimer = null;
-
         // 标签样式映射
         const TAG_STYLES = {
             '趋势共振': 'tag-trend',
@@ -747,7 +709,6 @@
                 const data = await cachedFetch('/api/latest', true);
                 currentData = data;
                 renderData(data);
-                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
             } catch (e) { console.error(e); }
         }
 
@@ -773,10 +734,6 @@
                 data.validSymbols != null ? data.validSymbols.toLocaleString() : '--';
             document.getElementById('filteredCount').textContent =
                 data.filteredCount != null ? data.filteredCount.toLocaleString() : '--';
-            const sentimentCount = data.sentimentCount != null ? data.sentimentCount.toLocaleString() : '--';
-            const sentimentDispatched = data.sentimentDispatched || 0;
-            document.getElementById('sentimentCount').textContent =
-                sentimentDispatched > 0 ? `${sentimentCount} / 提交${sentimentDispatched}` : sentimentCount;
             document.getElementById('elapsed').textContent =
                 data.elapsed != null ? data.elapsed + 's' : '--';
 
@@ -813,80 +770,6 @@
             } else {
                 noData.classList.add('hidden');
             }
-        }
-
-        function symbolToSentimentToken(symbol) {
-            return String(symbol || '').replace(/(USDT|USDC|FDUSD|USD)$/i, '').toUpperCase();
-        }
-
-        async function hydrateCryptoMintScores(data, showUpdateToast = true) {
-            const tokens = data.tokens || [];
-            const pending = tokens.filter(t =>
-                t.fetch_sentiment &&
-                getSentimentScore(t) < 0
-            );
-            if (!pending.length) return 0;
-
-            try {
-                const res = await fetch(`${CRYPTO_MINT_BASE}data/search-index.json?_t=${Date.now()}`, { cache: 'no-store' });
-                if (!res.ok) return 0;
-                const index = await res.json();
-                const byToken = {};
-                for (const item of index.results || []) {
-                    if (item.token) byToken[String(item.token).toUpperCase()] = item;
-                }
-
-                let updated = 0;
-                for (const t of pending) {
-                    const token = symbolToSentimentToken(t.symbol);
-                    const item = byToken[token];
-                    if (!item || item.score === null || item.score === undefined) continue;
-                    t.sentiment = {
-                        token,
-                        available: true,
-                        score: Number(item.score),
-                        label: item.label || '',
-                        action: item.action || '',
-                        name: item.name || '',
-                        generated_at: item.generatedAt || '',
-                        detail_url: `${CRYPTO_MINT_BASE}${token}`,
-                    };
-                    updated += 1;
-                }
-
-                if (updated > 0) {
-                    data.sentimentCount = tokens.filter(t => getSentimentScore(t) >= 0).length;
-                    renderData(data);
-                    if (showUpdateToast) showToast(`已补充 ${updated} 个消息评分`);
-                }
-                return updated;
-            } catch (e) {
-                console.warn('Crypto Mint score refresh failed', e);
-                return 0;
-            }
-        }
-
-        function hasPendingCryptoMintScores(data) {
-            return (data.tokens || []).some(t =>
-                t.fetch_sentiment &&
-                getSentimentScore(t) < 0
-            );
-        }
-
-        function startCryptoMintPolling(data) {
-            clearInterval(cryptoMintPollTimer);
-            if (!hasPendingCryptoMintScores(data)) return;
-
-            let attempts = 0;
-            const maxAttempts = 40;
-            cryptoMintPollTimer = setInterval(async () => {
-                attempts += 1;
-                await hydrateCryptoMintScores(data, true);
-                if (!hasPendingCryptoMintScores(data) || attempts >= maxAttempts) {
-                    clearInterval(cryptoMintPollTimer);
-                    cryptoMintPollTimer = null;
-                }
-            }, 15000);
         }
 
         function renderTagBar(tokens) {
@@ -954,27 +837,6 @@
             }).join('');
         }
 
-        function getSentimentScore(t) {
-            const score = t.sentiment && t.sentiment.score;
-            return score === null || score === undefined || Number.isNaN(Number(score)) ? -1 : Number(score);
-        }
-
-        function buildSentiment(t) {
-            const s = t.sentiment || {};
-            const score = getSentimentScore(t);
-            const scoreText = score >= 0 ? score : '待分析';
-            const scoreCls = score >= 0 ? 'sentiment-score has-score' : 'sentiment-score';
-            const label = score >= 0
-                ? [s.label, s.action].filter(Boolean).join(' · ')
-                : '等待 Crypto Mint 发布';
-            const token = String((s.token || t.symbol || '')).replace(/(USDT|USDC|FDUSD|USD)$/i, '').toUpperCase();
-            const url = s.detail_url || `https://liuqinh2s.github.io/crypto-mint/${token}`;
-            return `<div>
-              <a class="${scoreCls}" href="${esc(url)}" target="_blank" rel="noopener">${esc(scoreText)}</a>
-              <div class="sentiment-meta">${label ? esc(label) : 'Crypto Mint'}<br><a class="sentiment-link" href="${esc(url)}" target="_blank" rel="noopener">消息面</a></div>
-            </div>`;
-        }
-
         function selectSingleTag(tagKey) {
             activeTagFilter = [tagKey];
             if (currentData) renderData(currentData);
@@ -1005,7 +867,6 @@
           </td>
           <td style="${frColor}">${(t.fund_rate * 100).toFixed(4)}%</td>
           <td style="font-size:11px;color:#7a8599">${t.atr != null ? fmtPrice(t.atr) : '--'}</td>
-          <td>${buildSentiment(t)}</td>
           <td>${buildTags(t.tags)}</td>
         </tr>`;
             }).join('');
@@ -1037,9 +898,6 @@
             <span>L: ${fmtPrice(t.low_24h)}</span>
             <span>费率: ${(t.fund_rate * 100).toFixed(4)}%</span>
             <span>ATR: ${t.atr != null ? fmtPrice(t.atr) : '--'}</span>
-          </div>
-          <div class="card-prices">
-            <span>消息评分: ${buildSentiment(t)}</span>
           </div>
           <div class="card-meta"><span>#${i + 1}</span></div>
         </div>`;
@@ -1077,7 +935,6 @@
                 currentData = data;
                 activeTagFilter = [...DEFAULT_FILTER];
                 renderData(data);
-                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
                 showToast('已加载扫描 #' + id);
             } catch (e) { showToast('加载失败'); }
         }
@@ -1088,7 +945,6 @@
                 currentData = data;
                 activeTagFilter = [...DEFAULT_FILTER];
                 renderData(data);
-                hydrateCryptoMintScores(data, false).then(() => startCryptoMintPolling(data));
                 showToast('已回到最新数据');
             } catch (e) { showToast('加载失败'); }
         }

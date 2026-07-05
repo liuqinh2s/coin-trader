@@ -46,12 +46,6 @@ cp config.local.example.json config.local.json
 
 `config.local.json` 不会入库。
 
-消息面评分来自 [Crypto Mint](https://liuqinh2s.github.io/crypto-mint/) 已发布的结果。若要在扫描时自动把符合日K上行条件的代币批量提交给 Crypto Mint，在 `config.local.json` 填写 `crypto_mint_github_token`，或通过环境变量 `CRYPTO_MINT_GITHUB_TOKEN` 提供 GitHub token。
-
-未配置 token 时，扫描仍会读取已有消息面评分，缺失的币会在前端显示为“待分析”。
-
-缺失结果会一次性提交给 Crypto Mint，提交格式与 Crypto Mint 网站一致，例如 `UNI,VELODROME,HYPE`，默认 `exchange` 为 `other`。新提交的消息面分析需要等待 Crypto Mint 的 GitHub Actions 跑完并发布，扫描脚本默认最多等待 180 秒，页面也会每 15 秒从 Crypto Mint 最新索引补一次评分，最多持续约 10 分钟。
-
 ## 展示扫描
 
 执行一次公开行情扫描：

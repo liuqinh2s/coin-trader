@@ -48,7 +48,7 @@ if not scan_files:
     print("[BUILD] 无扫描数据，写入空默认值")
     empty = {
         "scanTime": None, "totalSymbols": 0, "validSymbols": 0,
-        "filteredCount": 0, "sentimentCount": 0, "sentimentDispatched": 0,
+        "filteredCount": 0,
         "elapsed": 0,
         "tokens": [],
     }
@@ -92,7 +92,6 @@ else:
                 "fund_rate": t.get("fund_rate", 0),
                 "market_cap": t.get("market_cap"),
                 "market_cap_source": t.get("market_cap_source"),
-                "sentiment": t.get("sentiment"),
                 "tags": t.get("tags", []),
             })
     (SITE_DATA_DIR / "search-index.json").write_text(json.dumps(symbol_map), encoding="utf-8")

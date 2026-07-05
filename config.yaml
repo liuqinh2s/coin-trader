@@ -37,7 +37,7 @@ auto_trade:
   min_quote_volume_1d: 500000
 
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
-rebuy_cooldown_hours: 4
+rebuy_cooldown_hours: 2
 
 # 阶梯回撤止盈配置: [涨幅倍数, 允许回撤比例]
 trailing_stop_tiers:
@@ -46,10 +46,8 @@ trailing_stop_tiers:
   - [1.30, 0.15]
   - [1.25, 0.13]
   - [1.20, 0.10]
-  - [1.15, 0.08]
-  - [1.13, 0.06]
-  - [1.10, 0.04]
-  - [1.06, 0.03]
+  - [1.15, 0.010]
+  - [1.13, 0.10]
 unprofitable_exit_days: 2
 weak_gain_exit_days: 3
 weak_gain_threshold_pct: 0.06
