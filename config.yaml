@@ -41,13 +41,8 @@ rebuy_cooldown_hours: 2
 
 # 阶梯回撤止盈配置: [涨幅倍数, 允许回撤比例]
 trailing_stop_tiers:
-  - [1.50, 0.50]
-  - [1.40, 0.20]
-  - [1.30, 0.15]
-  - [1.25, 0.13]
-  - [1.20, 0.10]
-  - [1.15, 0.010]
-  - [1.13, 0.10]
+  - [1.30, 0.10]
+  - [1.25, 0.05]
 unprofitable_exit_days: 2
 weak_gain_exit_days: 3
 weak_gain_threshold_pct: 0.06
