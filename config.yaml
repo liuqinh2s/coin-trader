@@ -21,12 +21,11 @@ max_drawdown_threshold: 0.10
 # 24h 内爆仓次数阈值
 max_burst_count: 2
 
-# 自动交易策略（选币沿用日K/周K布林趋势，下单方向为做空）
+# 自动交易策略（选币沿用日K/周K布林趋势，下单方向为做多）
 auto_trade:
-  # 每个仓位使用的保证金占总权益比例（10x 杠杆下名义仓位≈权益的 20%）
+  # 每个仓位的风险金额占总权益比例（ATR动态仓位：size = equity*risk_per_trade / (close - stop_price)）
+  # stop_price = BB_MID - ATR*atr_stop_multi，跌到止损线正好亏 risk_per_trade 比例资金，但不实际挂止损
   risk_per_trade: 0.02
-  # 固定止盈：做空后价格下跌该比例即由交易所侧止盈单平仓
-  take_profit_pct: 0.05
   min_tag_count: 7
   # max_total_risk 已停用（不再按止损距离做总风险闸门）
   max_total_risk: 0.10
@@ -44,11 +43,15 @@ auto_trade:
 rebuy_cooldown_hours: 2
 
 # 阶梯回撤止盈配置: [涨幅倍数, 允许回撤比例]
-# 已停用：做空策略出场改为交易所侧固定止盈单（take_profit_pct）+ 爆仓兜底，
-# 不再跑盘中 cut_profit 阶梯回撤止盈。以下参数保留仅供参考。
+# 做多策略：盘中每分钟监控持仓价格，浮盈达到对应阶梯后回撤超过允许比例即平仓。
+# 不设止损，10x 杠杆跌 10% 爆仓兜底。
 trailing_stop_tiers:
   - [1.30, 0.10]
-  - [1.25, 0.05]
+  - [1.20, 0.10]
+  - [1.15, 0.05]
+  - [1.11, 0.01]
+  - [1.08, 0.02]
+  - [1.06, 0.03]
 unprofitable_exit_days: 2
 weak_gain_exit_days: 3
 weak_gain_threshold_pct: 0.06

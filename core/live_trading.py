@@ -269,7 +269,6 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         return
 
     risk_per_trade = float(auto_cfg.get("risk_per_trade", 0.02))
-    take_profit_pct = float(auto_cfg.get("take_profit_pct", 0.05))
     leverage = 10
 
     for key in sorted_keys:
@@ -286,10 +285,15 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.info("%s 价格异常，跳过", key)
             continue
 
-        # 固定用总权益的 risk_per_trade 作为保证金开仓（不再用止损距离反推）
-        target_margin = equity * risk_per_trade
-        notional = target_margin * leverage
-        size = Decimal(str(notional / signal.close))
+        # ATR 动态仓位：跌到 stop_price (BB_MID - ATR*1.2) 时正好亏 2% 总资金
+        # size = risk_amount / (close - stop_price)，不实际挂止损单
+        atr_stop_multi = float(auto_cfg.get("atr_stop_multi", 1.2))
+        risk_amount = equity * risk_per_trade
+        stop_distance = signal.close - signal.stop_price
+        if stop_distance <= 0:
+            log.info("%s 止损距离无效(close=%.6g stop=%.6g)，跳过", key, signal.close, signal.stop_price)
+            continue
+        size = Decimal(str(risk_amount / stop_distance))
 
         try:
             min_size, volume_place, price_tick = _contract_min_size_and_places(ex, key)
@@ -321,17 +325,12 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             log.warning("%s 查询可开数量失败，跳过: %s", key, exc)
             continue
 
-        # 做空止盈价：入场价下方 take_profit_pct（价格跌 5% 即止盈）
-        take_profit = _round_price_to_tick(
-            Decimal(str(signal.close * (1 - take_profit_pct))), price_tick
-        )
         reason = buy_info.get("reason") or build_auto_trade_reason(signal)
         risk_info = {
             "strategy": AUTO_TRADE_TAG,
             "risk_per_trade": risk_per_trade,
-            "take_profit_pct": take_profit_pct,
-            "take_profit_price": float(take_profit),
             "atr": signal.atr,
+            "atr_stop_multi": atr_stop_multi,
             "bb_mid": signal.bb_mid,
             "market_cap": signal.market_cap,
             "market_cap_source": signal.market_cap_source,
@@ -339,15 +338,14 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
             "initial_margin_usdt": margin_need,
         }
         log.info(
-            "%s 自动交易开空: 标签数=%d [%s] size=%s notional=%.2f margin=%.2f tp=%.6g",
+            "%s 自动交易开多: 标签数=%d [%s] size=%s notional=%.2f margin=%.2f ATR=%.6g",
             key, _tag_count(buy_info), ", ".join(matched_tags),
-            size, notional, margin_need, float(take_profit),
+            size, notional, margin_need, signal.atr,
         )
         order(
             key, all_sym[key]["1D"]["data"], "BUY", state,
             reason=reason, bonus=buy_info.get("bonus", []),
             size=_format_decimal(size),
-            preset_take_profit=_format_decimal(take_profit),
             risk_info=risk_info,
         )
 
@@ -822,15 +820,16 @@ def _full_scan_and_order(state: AccountState, is_four_hour: bool = False) -> dic
 
 
 def _loop_scan_position(state: AccountState) -> None:
-    """持仓期间的循环节拍：仅按 4h/15m 触发全市场扫描 + 开新仓。
-
-    盘中每分钟的持仓轮询与阶梯回撤止盈（_scan_position/cut_profit）已停用，
-    出场完全交给交易所侧的固定止盈单和爆仓兜底。
+    """持仓期间的循环节拍：每分钟扫描持仓执行阶梯回撤止盈，
+    4h/15m 触发全市场扫描 + 开新仓。
     """
     while True:
         _wait_until_next(1)
         if not state.position:
             break
+
+        # 每分钟扫描持仓，执行阶梯回撤止盈
+        _scan_position(state)
 
         now = int(time.time())
         if now % (4 * 3600) <= 60:
