@@ -245,23 +245,15 @@ def _select_and_order(all_sym: dict, state: AccountState) -> None:
         log.info("自动交易候选：无")
         return
 
-    min_tag_count = int(auto_cfg.get("min_tag_count", 7))
-    candidate_keys = [
-        key for key, info in state.buy_list.items()
-        if _has_enough_tags(info, min_tag_count)
-    ]
-    if not candidate_keys:
-        log.info("自动交易候选：无标签数 >= %d 的币", min_tag_count)
-        return
-
-    # 开仓按标签数量排序，命中标签越多越优先。
+    # 不再要求标签数 >= 阈值，所有候选都可开仓；仍按标签数降序，命中越多越优先。
+    candidate_keys = list(state.buy_list.keys())
     sorted_keys = sorted(
         candidate_keys,
         key=lambda k: _tag_count_rank(state.buy_list[k]),
     )
     log.info(
-        "自动交易候选（标签数 >= %d，标签数降序）：%s",
-        min_tag_count,
+        "自动交易候选（标签数降序，共%d）：%s",
+        len(sorted_keys),
         ", ".join(
             f"{k}(标签={_tag_count(state.buy_list[k])}, "
             f"放量={state.buy_list[k]['signal'].volume_ratio:.2f}x)"
