@@ -160,7 +160,7 @@ def open_position(symbol: str, price: float, state: AccountState,
     leverage = _exchange_leverage(cfg)
     leverage_info = ex.set_leverage(
         symbol, ex.PRODUCT_TYPE, "USDT", None,
-        None, leverage, "long",
+        leverage, None, "long",
     )
     log.info("调整杠杆：%s", leverage_info)
 
