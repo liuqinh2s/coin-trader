@@ -7,6 +7,7 @@ from decimal import Decimal
 from time import sleep
 from typing import TYPE_CHECKING
 
+from api.errors import ExchangeBusinessError
 from api.factory import get_exchange
 from infra.env import EXCHANGE
 from infra.config import get_config
@@ -77,9 +78,12 @@ def close_position(symbol: str, state: AccountState,
     action_name = "平多" if is_full_close else "部分平多"
     log.info("下单量：%su  %s", size_str, action_name)
 
+    # 使用持仓实际的保证金模式（每次扫描会从交易所覆盖 state.position，
+    # 若写死 "isolated" 而仓位实际为 crossed，Bitget 会返回 22002）
+    margin_mode = state.position[symbol].get("marginMode", "isolated")
     order_info = ex.live_order(
-        symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
-        "sell", size_str, "market", "close",
+        symbol, ex.PRODUCT_TYPE, margin_mode, "USDT",
+        "buy", size_str, "market", "close",
     )
     log.info("orderInfo: %s", order_info)
     detail = _wait_for_filled(symbol, order_info)
@@ -198,9 +202,11 @@ def open_position(symbol: str, price: float, state: AccountState,
         })
 
     # 写入内存持仓，避免再次从服务器拉取
+    # 显式记录 marginMode，确保下次平仓时能读到正确值（不依赖下次从交易所覆盖）
     state.position[symbol] = {
         "symbol": symbol,
         "holdSide": "long",
+        "marginMode": "isolated",
         "openPriceAvg": detail["data"]["priceAvg"],
         "available": detail["data"]["baseVolume"],
         "cTime": detail["data"]["cTime"],
@@ -287,6 +293,16 @@ def order(symbol: str, data: list, order_type: str,
 
         state.record_profit(profit, order_type)
         return profit
+    except ExchangeBusinessError as e:
+        if e.code == "22002":
+            # 22002 = 暂无仓位可平：通常是 marginMode 参数与持仓不匹配
+            # 不清理本地持仓状态，仓位可能依然存在
+            log.error("order %s %s: 交易所拒绝平仓(22002-暂无仓位可平)，"
+                      "请检查仓位 marginMode 是否与交易所一致", symbol, order_type)
+            notify(f"{symbol} 平仓失败(22002)，请检查仓位保证金模式")
+        else:
+            log.error("order 交易所错误: %s %s - %s", symbol, order_type, e)
+            notify(f"下单交易所错误: {symbol} {order_type} - {e}")
     except TimeoutError as e:
         log.error("order 超时: %s %s - %s", symbol, order_type, e)
         notify(f"下单超时: {symbol} {order_type} - {e}")

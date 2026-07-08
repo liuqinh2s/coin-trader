@@ -13,6 +13,7 @@ from typing import Any
 
 import requests
 
+from api.errors import ExchangeBusinessError
 from api.exchange import ExchangeAPI
 from api.retry import retry
 from infra.env import NEED_PROXY, PROXIES, BITGET_DEMO
@@ -77,6 +78,16 @@ class BitgetClient(ExchangeAPI):
         resp = self._session.post(url, json=data, headers=headers)
         if resp.status_code != 200:
             log.error("POST %s 返回 %d: %s", path, resp.status_code, resp.text)
+            # 400 时优先解析交易所业务错误码，避免被 OSError 兜底误判为网络问题
+            if resp.status_code == 400:
+                try:
+                    body_json = resp.json()
+                    biz_code = str(body_json.get("code", ""))
+                    biz_msg = body_json.get("msg", "")
+                    if biz_code:
+                        raise ExchangeBusinessError(biz_code, biz_msg)
+                except (ValueError, AttributeError):
+                    pass  # JSON 解析失败则走常规 raise_for_status
         resp.raise_for_status()
         return resp.json()
 
