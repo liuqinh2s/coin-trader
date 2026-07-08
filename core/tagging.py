@@ -39,20 +39,48 @@ def min_price_180d(sym: dict) -> float:
     return min(float(data[-i][3]) for i in range(1, days + 1))
 
 
+def _ma_close(data: list, n: int) -> float:
+    """近 n 日收盘价均值。"""
+    n = min(n, len(data))
+    return sum(float(data[-i][4]) for i in range(1, n + 1)) / n
+
+
+def _gain(close: float, base: float) -> float:
+    """相对 base 的涨幅（0.3 表示 +30%）；base 非正时视为无穷大。"""
+    return close / base - 1.0 if base > 0 else float("inf")
+
+
 def check_anti_chase(sym: dict, cfg: dict[str, Any]) -> bool:
-    """未追高：近 7 日、近半年涨幅、布林带宽、收盘价相对上轨均未过度拉升。"""
+    """未追高：多维度校验价格未被过度拉升，任一维度超限即判定为追高。
+
+    校验维度：近 3 日急涨、近 7 日相对低点涨幅、相对 30 日均线偏离、布林带宽、
+    收盘价相对上轨；历史足够（>=180 日）时额外校验近半年低点涨幅。
+    历史太短（<30 日）的次新币最易被追高，不再无条件放行。
+    """
     try:
         data = sym["1D"]["data"]
-        if len(data) < 180:
-            return True
+        if len(data) < 30:
+            return False
         close = float(data[-1][4])
         boll = sym["1D"]["bolling"]
-        return (
-            close < min_price_7d(sym) * cfg.get("max_7d_gain_mult", 2.7)
-            and close <= min_price_180d(sym) * cfg.get("max_180d_low_gain_mult", 4.0)
-            and boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.7)
-            and close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.1)
-        )
+
+        checks = [
+            # 近 3 日垂直拉升
+            _gain(close, float(data[-4][4])) <= cfg.get("max_3d_gain", 0.30),
+            # 近 7 日相对低点涨幅
+            _gain(close, min_price_7d(sym)) <= cfg.get("max_7d_gain", 0.60),
+            # 相对 30 日均线偏离
+            _gain(close, _ma_close(data, 30)) <= cfg.get("max_ma30_dev", 0.35),
+            # 布林带宽（波动率未过度放大）
+            boll["Upper Band"][-1] < boll["Lower Band"][-1] * cfg.get("max_boll_width_mult", 2.0),
+            # 收盘价未大幅冲破上轨
+            close < boll["Upper Band"][-1] * cfg.get("max_close_above_upper_mult", 1.02),
+        ]
+        if len(data) >= 180:
+            # 历史足够时才校验半年低点涨幅
+            checks.append(_gain(close, min_price_180d(sym)) <= cfg.get("max_180d_gain", 1.5))
+
+        return all(checks)
     except (IndexError, KeyError, ValueError):
         return False
 

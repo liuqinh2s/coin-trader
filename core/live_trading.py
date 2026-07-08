@@ -40,7 +40,7 @@ from core.scanner import (
 from core.strategy import (
     is_15m_trend_up, is_1h_trend_up, is_4h_trend_up, is_1d_trend_up,
 )
-from core.tagging import build_symbol_tags
+from core.tagging import build_symbol_tags, check_anti_chase
 from infra.util import get_time_ms
 from core.copy_trading import report_copy_trading_status, report_history_summary
 
@@ -157,18 +157,6 @@ def _is_shutdown(state: AccountState) -> bool:
     except (KeyError, TypeError) as e:
         log.warning("_is_shutdown 检查异常: %s", e)
         return False
-
-
-def _min_price_7d(sym: dict) -> float:
-    """近 7 日最低价"""
-    days = min(7, len(sym["1D"]["data"]))
-    return min(float(sym["1D"]["data"][-i][3]) for i in range(1, days + 1))
-
-
-def _min_price_180d(sym: dict) -> float:
-    """近半年最低价"""
-    days = min(180, len(sym["1D"]["data"]))
-    return min(float(sym["1D"]["data"][-i][3]) for i in range(1, days + 1))
 
 
 def _format_decimal(value: Decimal) -> str:
@@ -453,11 +441,6 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
     old_data_symbols: dict = {"15m": [], "1H": [], "4H": [], "1D": []}
     volume_anomaly: dict = {"15m": [], "1H": [], "4H": []}
 
-    max_7d = cfg.get("max_7d_gain_mult", 2.7)
-    max_180d = cfg.get("max_180d_low_gain_mult", 4.0)
-    max_boll = cfg.get("max_boll_width_mult", 2.7)
-    max_upper = cfg.get("max_close_above_upper_mult", 1.1)
-
     for key in all_sym:
         all_keys.append(key)
         sym = all_sym[key]
@@ -483,29 +466,19 @@ def _legacy_scan_market(state: AccountState, is_four_hour: bool = False) -> dict
             and is_4h_trend_up(sym, "4H")
             and is_1d_trend_up(sym)
         )
-        # 防追高
-        close_price = float(sym["1D"]["data"][-1][4])
-        not_overextended = (
-            len(sym["1D"]["data"]) >= 180
-            and close_price < _min_price_7d(sym) * max_7d
-            and close_price <= _min_price_180d(sym) * max_180d
-            and sym["1D"]["bolling"]["Upper Band"][-1]
-            < sym["1D"]["bolling"]["Lower Band"][-1] * max_boll
-        )
-        not_above_upper = close_price < sym["1D"]["bolling"]["Upper Band"][-1] * max_upper
+        # 防追高（与选币标签共用 core.tagging.check_anti_chase，避免逻辑漂移）
+        anti_chase = check_anti_chase(sym, cfg)
 
         if trend_all_up:
             trend_up_symbols.append(key)
             # 调试：趋势共振币逐条件打印
             log.info(
-                "%s 条件检查: not_overextended=%s "
-                "not_above_upper=%s not_rubbish=%s",
-                key, not_overextended, not_above_upper, not _is_rubbish(sym),
+                "%s 条件检查: anti_chase=%s not_rubbish=%s",
+                key, anti_chase, not _is_rubbish(sym),
             )
 
-        # 四条件组合即可开仓，不再要求成交量异动
-        if (trend_all_up and not_overextended and not_above_upper
-                and not _is_rubbish(sym)):
+        # 三条件组合即可开仓，不再要求成交量异动
+        if trend_all_up and anti_chase and not _is_rubbish(sym):
             state.buy_list[key] = {"reason": "趋势共振 + 波动充足", "bonus": []}
 
         # 成交量异动检测，有异动的币标记加分
