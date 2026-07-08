@@ -125,7 +125,8 @@ def getOrdersPending(product_type: str) -> dict:
 
 def liveOrder(symbol: str, product_type: str, margin_mode: str,
               margin_coin: str, side: str, size, order_type: str,
-              trade_side: str, price: str = "", preset_stop_loss: str = "") -> dict:
+              trade_side: str, price: str = "", preset_stop_loss: str = "",
+              preset_take_profit: str = "") -> dict:
     """下单（市价/限价）"""
     data = {
         "symbol": symbol, "marginCoin": margin_coin, "size": size,
@@ -136,6 +137,8 @@ def liveOrder(symbol: str, product_type: str, margin_mode: str,
         data["price"] = str(price)
     if preset_stop_loss:
         data["presetStopLossPrice"] = preset_stop_loss
+    if preset_take_profit:
+        data["presetStopSurplusPrice"] = preset_take_profit
     return _post("/api/v2/mix/order/place-order", data)
 
 

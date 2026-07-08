@@ -74,12 +74,12 @@ def close_position(symbol: str, state: AccountState,
         return 0.0
     is_full_close = size >= available
     size_str = _format_size(size)
-    action_name = "平多" if is_full_close else "部分平多"
+    action_name = "平空" if is_full_close else "部分平空"
     log.info("下单量：%su  %s", size_str, action_name)
 
     order_info = ex.live_order(
         symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
-        "buy", size_str, "market", "close",
+        "sell", size_str, "market", "close",
     )
     log.info("orderInfo: %s", order_info)
     detail = _wait_for_filled(symbol, order_info)
@@ -152,27 +152,27 @@ def close_position(symbol: str, state: AccountState,
 
 def open_position(symbol: str, price: float, state: AccountState,
                   reason: str = "", bonus: list[str] | None = None,
-                  size=None, preset_stop_loss: str = "",
+                  size=None, preset_take_profit: str = "",
                   risk_info: dict | None = None) -> None:
-    """开多仓"""
+    """开空仓"""
     ex = get_exchange()
     cfg = get_config()
     leverage = _exchange_leverage(cfg)
     leverage_info = ex.set_leverage(
         symbol, ex.PRODUCT_TYPE, "USDT", None,
-        leverage, None, "long",
+        None, leverage, "short",
     )
     log.info("调整杠杆：%s", leverage_info)
 
     min_usdt = cfg.get("min_usdt", 10)
     position_balance = min_usdt if state.is_shutdown else state.position_balance
     order_size = size if size is not None else position_balance / price
-    log.info("下单数量：%s  开多 预设止损:%s", order_size, preset_stop_loss or "无")
+    log.info("下单数量：%s  开空 预设止盈:%s", order_size, preset_take_profit or "无")
 
     order_info = ex.live_order(
         symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
-        "buy", order_size, "market", "open",
-        preset_stop_loss=preset_stop_loss,
+        "sell", order_size, "market", "open",
+        preset_take_profit=preset_take_profit,
     )
     log.info("orderInfo: %s", order_info)
     detail = _wait_for_filled(symbol, order_info)
@@ -182,7 +182,6 @@ def open_position(symbol: str, price: float, state: AccountState,
     filled_size = float(detail["data"]["baseVolume"])
 
     if risk_info:
-        stop_price = float(risk_info.get("stop_price", preset_stop_loss or 0))
         actual_risk = float(
             risk_info.get(
                 "planned_risk_usdt",
@@ -196,13 +195,13 @@ def open_position(symbol: str, price: float, state: AccountState,
             "base_volume": filled_size,
             "quote_volume": float(detail["data"].get("quoteVolume", filled_price * filled_size)),
             "actual_risk_usdt": actual_risk,
-            "stop_price": stop_price,
+            "take_profit_price": preset_take_profit,
         })
 
     # 写入内存持仓，避免再次从服务器拉取
     state.position[symbol] = {
         "symbol": symbol,
-        "holdSide": "long",
+        "holdSide": "short",
         "openPriceAvg": detail["data"]["priceAvg"],
         "available": detail["data"]["baseVolume"],
         "cTime": detail["data"]["cTime"],
@@ -223,7 +222,7 @@ def open_position(symbol: str, price: float, state: AccountState,
     reason_info = f"原因: {reason}" if reason else "原因: 无"
     bonus_info = f" 加分项: {', '.join(bonus)}" if bonus else ""
     notify(
-        f"时间: {get_human_time(detail['data']['cTime'])} {symbol} 开多, "
+        f"时间: {get_human_time(detail['data']['cTime'])} {symbol} 开空, "
         f"价格: {filled_price} 开仓量:{detail['data']['quoteVolume']}u "
         f"持仓量:{detail['data']['baseVolume']} 手续费:{detail['data']['fee']} "
         f"{reason_info}{bonus_info}"
@@ -249,14 +248,14 @@ def order(symbol: str, data: list, order_type: str,
           cut: dict | None = None,
           reason: str = "", bonus: list[str] | None = None,
           close_reason: str = "", close_size=None,
-          size=None, preset_stop_loss: str = "",
+          size=None, preset_take_profit: str = "",
           risk_info: dict | None = None) -> float | None:
     """
     统一下单入口
 
     :param symbol:       交易对
     :param data:         K 线数据列表
-    :param order_type:   'BUY'（开多）或 'SELL'（平多）
+    :param order_type:   'BUY'（开空）或 'SELL'（平空）
     :param state:        账户状态
     :param only_close:   True 时只平仓不开新仓
     :param reason:       开仓选币原因
@@ -270,17 +269,17 @@ def order(symbol: str, data: list, order_type: str,
     try:
         if order_type == "BUY":
             pos = state.position.get(symbol)
-            if pos and pos["holdSide"] == "long":
-                return 0.0  # 已持有多仓
+            if pos and pos["holdSide"] == "short":
+                return 0.0  # 已持有空仓
             if not only_close:
                 open_position(
                     symbol, price, state, reason=reason, bonus=bonus,
-                    size=size, preset_stop_loss=preset_stop_loss,
+                    size=size, preset_take_profit=preset_take_profit,
                     risk_info=risk_info,
                 )
-        else:  # SELL = 平多
+        else:  # SELL = 平空
             pos = state.position.get(symbol)
-            if pos and pos["holdSide"] == "long":
+            if pos and pos["holdSide"] == "short":
                 profit = close_position(
                     symbol, state,
                     close_reason=close_reason or "未知",

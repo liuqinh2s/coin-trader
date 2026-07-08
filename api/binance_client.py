@@ -101,10 +101,12 @@ class BinanceClient(ExchangeAPI):
             if side == "buy":
                 return {"side": "BUY", "positionSide": "LONG"}
             return {"side": "SELL", "positionSide": "SHORT"}
-        else:  # close
+        else:  # close，调用方约定 side=持仓方向
             if side == "buy":
-                return {"side": "BUY", "positionSide": "SHORT"}
-            return {"side": "SELL", "positionSide": "LONG"}
+                # 平多：卖出 LONG 持仓
+                return {"side": "SELL", "positionSide": "LONG"}
+            # 平空：买入 SHORT 持仓
+            return {"side": "BUY", "positionSide": "SHORT"}
 
     # ---- 账户 ----
 
@@ -149,7 +151,7 @@ class BinanceClient(ExchangeAPI):
 
     def live_order(self, symbol, product_type, margin_mode, margin_coin,
                    side, size, order_type, trade_side, price="",
-                   preset_stop_loss="") -> dict:
+                   preset_stop_loss="", preset_take_profit="") -> dict:
         side_info = self._side_map(side, trade_side)
         params = {
             "symbol": self._to_symbol(symbol),
@@ -164,15 +166,28 @@ class BinanceClient(ExchangeAPI):
 
         result = self._post("/fapi/v1/order", params)
 
+        # 平仓方向与持仓方向相反
+        close_side = "SELL" if side_info["positionSide"] == "LONG" else "BUY"
+
         # 如果有预设止损，额外下一个止损单
         if preset_stop_loss:
-            sl_side = "SELL" if side_info["positionSide"] == "LONG" else "BUY"
             self._post("/fapi/v1/order", {
                 "symbol": self._to_symbol(symbol),
-                "side": sl_side,
+                "side": close_side,
                 "positionSide": side_info["positionSide"],
                 "type": "STOP_MARKET",
                 "stopPrice": str(preset_stop_loss),
+                "closePosition": "true",
+            })
+
+        # 如果有预设止盈，额外下一个止盈单
+        if preset_take_profit:
+            self._post("/fapi/v1/order", {
+                "symbol": self._to_symbol(symbol),
+                "side": close_side,
+                "positionSide": side_info["positionSide"],
+                "type": "TAKE_PROFIT_MARKET",
+                "stopPrice": str(preset_take_profit),
                 "closePosition": "true",
             })
 

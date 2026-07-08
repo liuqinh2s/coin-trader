@@ -130,7 +130,7 @@ class BitgetClient(ExchangeAPI):
 
     def live_order(self, symbol, product_type, margin_mode, margin_coin,
                    side, size, order_type, trade_side, price="",
-                   preset_stop_loss="") -> dict:
+                   preset_stop_loss="", preset_take_profit="") -> dict:
         data = {
             "symbol": symbol, "marginCoin": margin_coin, "size": size,
             "side": side, "orderType": order_type,
@@ -141,6 +141,8 @@ class BitgetClient(ExchangeAPI):
             data["price"] = str(price)
         if preset_stop_loss:
             data["presetStopLossPrice"] = preset_stop_loss
+        if preset_take_profit:
+            data["presetStopSurplusPrice"] = preset_take_profit
         return self._post("/api/v2/mix/order/place-order", data)
 
     def get_order_detail(self, symbol, product_type, order_id) -> dict:

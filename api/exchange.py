@@ -45,7 +45,8 @@ class ExchangeAPI(ABC):
     def live_order(self, symbol: str, product_type: str, margin_mode: str,
                    margin_coin: str, side: str, size, order_type: str,
                    trade_side: str, price: str = "",
-                   preset_stop_loss: str = "") -> dict:
+                   preset_stop_loss: str = "",
+                   preset_take_profit: str = "") -> dict:
         """下单（市价/限价），返回格式: {"data": {"orderId": "..."}}"""
 
     @abstractmethod
