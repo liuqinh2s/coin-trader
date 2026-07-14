@@ -65,11 +65,12 @@ def log_open(
     bonus: list[str],
     balance: float,
     ctime: str = "",
+    action: str = "开多",
 ) -> None:
-    """记录开仓"""
+    """记录开仓（action 默认"开多"，做空策略传"开空"）"""
     _append_row({
         "时间": get_human_time(ctime) if ctime else get_human_time(),
-        "类型": "开多",
+        "类型": action,
         "币种": symbol,
         "开仓价": f"{filled_price:.6g}",
         "开仓量(u)": quote_volume,
@@ -98,12 +99,19 @@ def log_close(
     close_reason: str,
     balance: float,
     ctime: str = "",
+    action: str = "平多",
+    pnl_pct: float | None = None,
 ) -> None:
-    """记录平仓"""
-    pnl_pct = (close_price - open_price) / open_price * 100 if open_price else 0
+    """记录平仓（action 默认"平多"，做空策略传"平空"）
+
+    做空盈亏方向与做多相反，调用方可用 pnl_pct 显式传入正确的盈亏百分比；
+    不传时按做多口径 (close-open)/open 计算。
+    """
+    if pnl_pct is None:
+        pnl_pct = (close_price - open_price) / open_price * 100 if open_price else 0
     _append_row({
         "时间": get_human_time(ctime) if ctime else get_human_time(),
-        "类型": "平多",
+        "类型": action,
         "币种": symbol,
         "平仓价": f"{close_price:.6g}",
         "开仓价": f"{open_price:.6g}",

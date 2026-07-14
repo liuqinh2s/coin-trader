@@ -39,6 +39,27 @@ auto_trade:
   market_cap_cache_ttl_seconds: 86400
   min_quote_volume_1d: 500000
 
+# =============================================================================
+#  做空策略（通过环境变量 SHORT_STRATEGY=true 切换启用）
+#  选币：复用做多策略的「龙头币」「小市值」两个标签 —— 取「非龙头 且 小市值」，
+#        再随机挑选 random_pick 个做空。
+#  出场：开仓时挂交易所预设止盈单，价格下跌 take_profit_pct 即自动平空止盈；
+#        不设止损，10x 杠杆用爆仓兜底。
+# =============================================================================
+short_trade:
+  # 单币保证金占总权益比例（保证金口径）：margin = equity * risk_per_trade
+  # 名义敞口 = margin * leverage = equity * risk_per_trade * 10
+  risk_per_trade: 0.02
+  # 同时最多持有的空单数
+  max_short_positions: 5
+  # 每轮随机挑选的做空币数量
+  random_pick: 5
+  # 止盈幅度：价格下跌该比例即止盈（挂交易所预设止盈单）
+  take_profit_pct: 0.03
+  # 小市值门槛（复用做多口径）：0 < 市值 < market_cap_max
+  market_cap_max: 1000000000
+  market_cap_cache_ttl_seconds: 86400
+
 # 止盈/止损后冷却（小时）：该币平仓后此时间内不再买入
 rebuy_cooldown_hours: 2
 

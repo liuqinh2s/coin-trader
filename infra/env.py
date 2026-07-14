@@ -14,6 +14,11 @@ load_dotenv()
 # 支持: "bitget" (默认) / "binance"
 EXCHANGE: str = os.getenv("EXCHANGE", "bitget").lower()
 
+# ---- 策略选择 ----
+# 设为 true 切换到做空策略（非龙头 + 小市值 随机选币做空）。
+# 默认 false，走原有做多策略，原做多逻辑完全不受影响。
+SHORT_STRATEGY: bool = os.getenv("SHORT_STRATEGY", "false").lower() == "true"
+
 # ---- 代理配置 ----
 NEED_PROXY: bool = os.getenv("NEED_PROXY",
                              os.getenv("BITGET_NEED_PROXY", "false")
