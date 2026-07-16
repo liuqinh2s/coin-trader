@@ -1,8 +1,9 @@
 """
-仓位管理模块：止盈、时间退出、价格追踪
+仓位管理模块：止盈、时间退出、价格追踪。
 """
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from infra.config import get_config
@@ -12,12 +13,47 @@ if TYPE_CHECKING:
     from models import AccountState
 
 
+def _get_trailing_stop_tier(
+    price_avg: float,
+    price_high: float,
+    tiers: list[list[float]],
+    gain_step: float,
+    pullback_step: float,
+) -> tuple[float, float] | None:
+    """返回最高价已达到的涨幅档位，以及按买入价计算的回撤比例。"""
+    if price_avg <= 0 or not tiers:
+        return None
+
+    sorted_tiers = sorted(
+        ((float(gain), float(pullback)) for gain, pullback in tiers),
+        key=lambda tier: tier[0],
+    )
+    gain = price_high / price_avg - 1
+    epsilon = 1e-12
+
+    if gain + epsilon < sorted_tiers[0][0]:
+        return None
+
+    selected_gain, selected_pullback = sorted_tiers[0]
+    for tier_gain, tier_pullback in sorted_tiers[1:]:
+        if gain + epsilon < tier_gain:
+            break
+        selected_gain, selected_pullback = tier_gain, tier_pullback
+
+    last_gain, last_pullback = sorted_tiers[-1]
+    if selected_gain == last_gain and gain_step > 0 and pullback_step > 0:
+        extra_steps = math.floor((gain - last_gain + epsilon) / gain_step)
+        selected_gain = round(last_gain + extra_steps * gain_step, 12)
+        selected_pullback = round(last_pullback + extra_steps * pullback_step, 12)
+
+    return selected_gain, selected_pullback
+
+
 def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bool:
     """
     多仓出场逻辑：
-    - 持仓超过 N 天仍未盈利则平仓
-    - 持仓超过 N 天最高涨幅不达标则平仓
-    - 浮盈达到启动门槛后的回撤止盈
+    - 浮盈达到启动门槛后执行阶梯回撤止盈
+    - 回撤金额始终以买入均价为基准计算
     """
     cfg = get_config()
     data = sym_data["15m"]["data"]
@@ -32,34 +68,36 @@ def cut_profit(symbol: str, sym_data: dict, state: AccountState, order_fn) -> bo
     if not tiers:
         log.error("config.yaml 缺少 trailing_stop_tiers 配置，跳过止盈检查")
         return False
-    for gain_mult, pullback in tiers:
-        if price_high <= price_avg * gain_mult:
-            continue
 
-        if gain_mult == 1.50:
-            trigger = max((price_avg + price_high) / 2, price_high * 0.90)
-            if price < trigger:
-                high_pct = (price_high - price_avg) * 100 / price_avg
-                reason = f"阶梯止盈(涨{high_pct:.2f}%,回落一半)"
-                order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-                notify(f"止盈单，涨{high_pct:.2f}%，回落一半")
-                return True
-        elif price_high > price * (1 + pullback):
-            reason = f"阶梯止盈(涨>{(gain_mult - 1) * 100:.0f}%,回撤{pullback * 100:.0f}%)"
-            order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
-            notify(
-                f"止盈单，涨{(gain_mult - 1) * 100:.0f}%，"
-                f"回落{pullback * 100:.0f}%"
-            )
-            return True
+    tier = _get_trailing_stop_tier(
+        price_avg,
+        price_high,
+        tiers,
+        float(cfg.get("trailing_stop_gain_step", 0.05)),
+        float(cfg.get("trailing_stop_pullback_step", 0.01)),
+    )
+    if tier is None:
+        return False
 
-        break
+    tier_gain, pullback = tier
+    trigger_price = price_high - price_avg * pullback
+    if price <= trigger_price:
+        reason = (
+            f"阶梯止盈(涨{tier_gain * 100:.0f}%,"
+            f"按买入价回撤{pullback * 100:.0f}%)"
+        )
+        order_fn(symbol, data, "SELL", state, only_close=True, close_reason=reason)
+        notify(
+            f"止盈单，涨{tier_gain * 100:.0f}%，"
+            f"按买入价回撤{pullback * 100:.0f}%"
+        )
+        return True
 
     return False
 
 
 def track_price(all_sym: dict, is_first_scan: bool, state: AccountState) -> None:
-    """追踪持仓期间的最高价和最低价，用于出场判断"""
+    """追踪持仓期间的最高价和最低价，用于出场判断。"""
     for sym in list(state.price_track.keys()):
         if sym not in all_sym:
             del state.price_track[sym]
