@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from time import sleep
 from typing import TYPE_CHECKING
 
@@ -65,6 +65,23 @@ def _post_open_extra_margin(detail: dict, leverage: int, cfg: dict) -> Decimal:
     filled_size = _to_decimal(detail["data"]["baseVolume"])
     initial_margin = filled_price * filled_size / _to_decimal(leverage)
     return initial_margin * multiplier
+
+
+def _contract_price_tick(ex, symbol: str) -> Decimal:
+    contracts = ex.get_contracts(symbol, ex.PRODUCT_TYPE)
+    data = contracts.get("data") or []
+    info = data[0] if isinstance(data, list) and data else data
+    if not isinstance(info, dict):
+        raise ValueError(f"{symbol} contract info is empty")
+    price_place = int(info.get("pricePlace", 8))
+    price_end_step = _to_decimal(info.get("priceEndStep", "1"))
+    return price_end_step * Decimal("1").scaleb(-price_place)
+
+
+def _round_price_to_tick(price: Decimal, tick: Decimal) -> Decimal:
+    if tick <= 0:
+        return price
+    return (price / tick).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick
 
 
 def close_position(symbol: str, state: AccountState,
@@ -188,7 +205,11 @@ def open_position(symbol: str, price: float, state: AccountState,
     log.info("下单数量：%s  开多", order_size)
 
     if not preset_take_profit:
-        preset_take_profit = _format_size(_to_decimal(price) * Decimal("1.25"))
+        price_tick = _contract_price_tick(ex, symbol)
+        take_profit_price = _round_price_to_tick(
+            _to_decimal(price) * Decimal("1.25"), price_tick
+        )
+        preset_take_profit = _format_size(take_profit_price)
     order_info = ex.live_order(
         symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
         "buy", order_size, "market", "open",
