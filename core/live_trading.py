@@ -24,7 +24,6 @@ from core.data_fetcher import get_all_data, compute_indicators
 from infra.logger import log, notify
 from models import AccountState
 from core.order import order
-from core.position import cut_profit, track_price
 from core.auto_strategy import (
     AUTO_TRADE_TAG,
     build_auto_trade_reason,
@@ -753,7 +752,7 @@ def _scan_position(state: AccountState) -> None:
                  hold_ms / MS_1D, limit)
     else:
         limit = "41"
-    asyncio.run(get_all_data(["1D", "15m", "1m"], all_sym, key_list, limit, state))
+    asyncio.run(get_all_data(["1D", "15m"], all_sym, key_list, limit, state))
     if is_first:
         state.is_first_scan_position = False
 
@@ -761,7 +760,7 @@ def _scan_position(state: AccountState) -> None:
     for key in list(all_sym.keys()):
         sym = all_sym[key]
         missing = [
-            tf for tf in ("1D", "15m", "1m")
+            tf for tf in ("1D", "15m")
             if not sym.get(tf, {}).get("data")
         ]
         if missing:
@@ -774,11 +773,8 @@ def _scan_position(state: AccountState) -> None:
     if not all_sym:
         return
 
-    track_price(all_sym, is_first, state)
     compute_indicators(all_sym)
 
-    for key in all_sym:
-        cut_profit(key, all_sym[key], state, order)
 
 
 def _full_scan_and_order(state: AccountState, is_four_hour: bool = False) -> dict:
@@ -797,13 +793,11 @@ def _loop_scan_position(state: AccountState) -> None:
     4h/15m 触发全市场扫描 + 开新仓。
     """
     while True:
-        _wait_until_next(1)
+        _wait_until_next(15)
         if not state.position:
             break
 
         # 每分钟扫描持仓，执行阶梯回撤止盈
-        _scan_position(state)
-
         now = int(time.time())
         if now % (4 * 3600) <= 60:
             _full_scan_and_order(state, is_four_hour=True)

@@ -187,9 +187,12 @@ def open_position(symbol: str, price: float, state: AccountState,
     order_size = size if size is not None else position_balance / price
     log.info("下单数量：%s  开多", order_size)
 
+    if not preset_take_profit:
+        preset_take_profit = _format_size(_to_decimal(price) * Decimal("1.25"))
     order_info = ex.live_order(
         symbol, ex.PRODUCT_TYPE, "isolated", "USDT",
         "buy", order_size, "market", "open",
+        preset_take_profit=preset_take_profit,
     )
     log.info("orderInfo: %s", order_info)
     detail = _wait_for_filled(symbol, order_info)
