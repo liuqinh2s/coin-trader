@@ -26,6 +26,8 @@ auto_trade:
   # 每个仓位的风险金额占总权益比例（ATR动态仓位：size = equity*risk_per_trade / (close - stop_price)）
   # stop_price = BB_MID - ATR*atr_stop_multi，跌到止损线正好亏 risk_per_trade 比例资金，但不实际挂止损
   risk_per_trade: 0.02
+  # Add this multiple of the initial isolated margin after the order fills.
+  post_open_extra_margin_multiplier: 1.5
   min_tag_count: 7
   # max_total_risk 已停用（不再按止损距离做总风险闸门）
   max_total_risk: 0.10
@@ -68,9 +70,8 @@ rebuy_cooldown_hours: 2
 # 不设止损，10x 杠杆跌 10% 爆仓兜底。
 trailing_stop_tiers:
   # [相对买入价的涨幅, 按买入价计算的允许回撤比例]
-  - [0.11, 0.01]
-  - [0.15, 0.02]
-# 15% 之后，每上涨 5%，允许回撤增加买入价的 1%。
+  - [0.25, 0.01]
+# 25% 之后，每上涨 5%，允许回撤增加买入价的 1%。
 trailing_stop_gain_step: 0.05
 trailing_stop_pullback_step: 0.01
 unprofitable_exit_days: 2

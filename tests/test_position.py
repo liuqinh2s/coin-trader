@@ -5,33 +5,33 @@ from unittest.mock import patch
 from core.position import _get_trailing_stop_tier, cut_profit
 
 
-TIERS = [[0.11, 0.01], [0.15, 0.02]]
+TIERS = [[0.25, 0.01]]
 
 
 class TrailingStopTierTests(unittest.TestCase):
-    def test_starts_at_exactly_eleven_percent(self):
+    def test_starts_at_exactly_twenty_five_percent(self):
         self.assertEqual(
-            _get_trailing_stop_tier(100, 111, TIERS, 0.05, 0.01),
-            (0.11, 0.01),
+            _get_trailing_stop_tier(100, 125, TIERS, 0.05, 0.01),
+            (0.25, 0.01),
         )
 
     def test_uses_highest_reached_tier(self):
         self.assertEqual(
-            _get_trailing_stop_tier(100, 117, TIERS, 0.05, 0.01),
-            (0.15, 0.02),
-        )
-        self.assertEqual(
-            _get_trailing_stop_tier(100, 120, TIERS, 0.05, 0.01),
-            (0.20, 0.03),
+            _get_trailing_stop_tier(100, 127, TIERS, 0.05, 0.01),
+            (0.25, 0.01),
         )
         self.assertEqual(
             _get_trailing_stop_tier(100, 130, TIERS, 0.05, 0.01),
-            (0.30, 0.05),
+            (0.30, 0.02),
+        )
+        self.assertEqual(
+            _get_trailing_stop_tier(100, 140, TIERS, 0.05, 0.01),
+            (0.40, 0.04),
         )
 
-    def test_does_not_start_below_eleven_percent(self):
+    def test_does_not_start_below_twenty_five_percent(self):
         self.assertIsNone(
-            _get_trailing_stop_tier(100, 110.99, TIERS, 0.05, 0.01)
+            _get_trailing_stop_tier(100, 124.99, TIERS, 0.05, 0.01)
         )
 
 
@@ -66,14 +66,14 @@ class CutProfitTests(unittest.TestCase):
 
         closed = cut_profit(
             "BTCUSDT",
-            self._sym_data(115),
-            self._state(117),
+            self._sym_data(124),
+            self._state(125),
             lambda *args, **kwargs: orders.append((args, kwargs)),
         )
 
         self.assertTrue(closed)
         self.assertEqual(len(orders), 1)
-        self.assertIn("按买入价回撤2%", orders[0][1]["close_reason"])
+        self.assertIn("1%", orders[0][1]["close_reason"])
 
     @patch("core.position.notify")
     @patch("core.position.get_config")
@@ -85,8 +85,8 @@ class CutProfitTests(unittest.TestCase):
 
         closed = cut_profit(
             "BTCUSDT",
-            self._sym_data(115.01),
-            self._state(117),
+            self._sym_data(124.01),
+            self._state(125),
             lambda *args, **kwargs: orders.append((args, kwargs)),
         )
 

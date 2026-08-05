@@ -53,6 +53,20 @@ def _exchange_leverage(cfg: dict) -> int:
     return int(cfg.get("leverage", 10))
 
 
+def _post_open_extra_margin(detail: dict, leverage: int, cfg: dict) -> Decimal:
+    """Calculate the isolated margin to add after a long order is filled."""
+    multiplier = _to_decimal(
+        cfg.get("auto_trade", {}).get("post_open_extra_margin_multiplier", 0)
+    )
+    if multiplier <= 0 or leverage <= 0:
+        return Decimal("0")
+
+    filled_price = _to_decimal(detail["data"]["priceAvg"])
+    filled_size = _to_decimal(detail["data"]["baseVolume"])
+    initial_margin = filled_price * filled_size / _to_decimal(leverage)
+    return initial_margin * multiplier
+
+
 def close_position(symbol: str, state: AccountState,
                    close_reason: str = "手动平仓",
                    close_size=None) -> float:
@@ -211,6 +225,23 @@ def open_position(symbol: str, price: float, state: AccountState,
         "available": detail["data"]["baseVolume"],
         "cTime": detail["data"]["cTime"],
     }
+
+    extra_margin = _post_open_extra_margin(detail, leverage, cfg)
+    if extra_margin > 0:
+        extra_margin_str = _format_size(extra_margin)
+        try:
+            margin_info = ex.set_position_margin(
+                symbol, ex.PRODUCT_TYPE, "USDT", extra_margin_str, "long"
+            )
+            log.info(
+                "%s post-open isolated margin added: %s USDT, result=%s",
+                symbol, extra_margin_str, margin_info,
+            )
+        except Exception as exc:
+            log.error("%s failed to add post-open margin: %s", symbol, exc)
+            notify(
+                f"{symbol} opened, but adding {extra_margin_str} USDT margin failed: {exc}"
+            )
 
     state.position_type = "BUY"
     state.position_symbol = symbol
